@@ -16,7 +16,7 @@ def create_app():
     BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
-    app.config['SQLALCHEMY_DATABASE_URI'] ='mssql+pyodbc://fszn_test:fszn123!@localhost/fszn_db?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes'
+    app.config['SQLALCHEMY_DATABASE_URI'] ='mssql+pyodbc://fszn_user:fszn123!@localhost/fszn_db_product?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes'
     app.config['SECRET_KEY'] = 'dev' 
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

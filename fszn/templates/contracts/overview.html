@@ -12,6 +12,10 @@
     <strong>客户公司：</strong>{{ contract.company.name if contract.company else '' }}<br>
     <strong>我方负责人：</strong>{{ contract.our_manager or '' }}<br>
 </p>
+<p>
+    <strong>项目状态：</strong>
+    <span class="status-{{ status_level }}">{{ status_text }}</span>
+</p>
 
 <!-- 顶部导航 -->
 <p>
@@ -22,9 +26,6 @@
     <a href="{{ url_for('contracts.manage_tasks', contract_id=contract.id) }}">任务 / 生产进度</a> |
     <a href="{{ url_for('contracts.manage_procurements', contract_id=contract.id) }}">采购清单</a> |
     <a href="{{ url_for('contracts.manage_acceptances', contract_id=contract.id) }}">验收</a> |
-    <a href="{{ url_for('contracts.manage_payments', contract_id=contract.id) }}">付款</a> |
-    <a href="{{ url_for('contracts.manage_invoices', contract_id=contract.id) }}">开票</a> |
-    <a href="{{ url_for('contracts.manage_refunds', contract_id=contract.id) }}">退款</a> |
     <a href="{{ url_for('contracts.manage_feedbacks', contract_id=contract.id) }}">客户反馈</a> |
     <a href="{{ url_for('contracts.manage_files', contract_id=contract.id) }}">文件</a>
 </p>
@@ -56,21 +57,6 @@
             <td><a href="{{ url_for('contracts.manage_acceptances', contract_id=contract.id) }}">查看验收</a></td>
         </tr>
         <tr>
-            <td>付款记录</td>
-            <td>{{ stats.pay }}</td>
-            <td><a href="{{ url_for('contracts.manage_payments', contract_id=contract.id) }}">查看付款</a></td>
-        </tr>
-        <tr>
-            <td>开票记录</td>
-            <td>{{ stats.inv }}</td>
-            <td><a href="{{ url_for('contracts.manage_invoices', contract_id=contract.id) }}">查看开票</a></td>
-        </tr>
-        <tr>
-            <td>退款记录</td>
-            <td>{{ stats.refund }}</td>
-            <td><a href="{{ url_for('contracts.manage_refunds', contract_id=contract.id) }}">查看退款</a></td>
-        </tr>
-        <tr>
             <td>客户反馈</td>
             <td>{{ stats.fb }}</td>
             <td><a href="{{ url_for('contracts.manage_feedbacks', contract_id=contract.id) }}">查看反馈</a></td>
@@ -82,7 +68,17 @@
         </tr>
     </tbody>
 </table>
-
+<h3>验收 & 反馈状态</h3>
+<p>
+    验收记录：共 {{ acc_summary.total }} 条，
+    其中通过 {{ acc_summary.passed }} 条，
+    未通过 / 进行中 {{ acc_summary.not_passed }} 条。
+</p>
+<p>
+    客户反馈：共 {{ fb_summary.total }} 条，
+    未解决 {{ fb_summary.unresolved }} 条，
+    已解决 {{ fb_summary.resolved }} 条。
+</p>
 <!-- 部门负责人总览 -->
 <h2>部门及负责人</h2>
 {% if leaders %}

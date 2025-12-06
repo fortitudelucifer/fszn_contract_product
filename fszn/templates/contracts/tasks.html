@@ -19,13 +19,10 @@
     <a href="{{ url_for('contracts.manage_tasks', contract_id=contract.id) }}">任务/进度</a> |
     <a href="{{ url_for('contracts.manage_procurements', contract_id=contract.id) }}">采购清单</a> |
     <a href="{{ url_for('contracts.manage_acceptances', contract_id=contract.id) }}">验收</a> |
-    <a href="{{ url_for('contracts.manage_payments', contract_id=contract.id) }}">付款</a> |
-    <a href="{{ url_for('contracts.manage_invoices', contract_id=contract.id) }}">开票</a> |
-    <a href="{{ url_for('contracts.manage_refunds', contract_id=contract.id) }}">退款</a> |
-    <a href="{{ url_for('contracts.manage_feedbacks', contract_id=contract.id) }}">客户反馈</a>
+    <a href="{{ url_for('contracts.manage_feedbacks', contract_id=contract.id) }}">客户反馈</a> |
     <a href="{{ url_for('contracts.manage_files', contract_id=contract.id) }}">文件</a>
-
 </p>
+
 
 <h2>现有任务</h2>
   {% if tasks %}
@@ -55,12 +52,43 @@
             <td>{{ t.status }}</td>
             <td>{{ t.remarks }}</td>
             <td>
+                <!-- 状态操作按钮：开始 / 待质检 / 完成 / 暂停 -->
+                <form method="post"
+                      action="{{ url_for('contracts.change_task_status', contract_id=contract.id, task_id=t.id) }}"
+                      style="display:inline;">
+                    <input type="hidden" name="action" value="start">
+                    <button type="submit">开始</button>
+                </form>
+
+                <form method="post"
+                      action="{{ url_for('contracts.change_task_status', contract_id=contract.id, task_id=t.id) }}"
+                      style="display:inline;">
+                    <input type="hidden" name="action" value="wait_qc">
+                    <button type="submit">待质检</button>
+                </form>
+
+                <form method="post"
+                      action="{{ url_for('contracts.change_task_status', contract_id=contract.id, task_id=t.id) }}"
+                      style="display:inline;">
+                    <input type="hidden" name="action" value="complete">
+                    <button type="submit">完成</button>
+                </form>
+
+                <form method="post"
+                      action="{{ url_for('contracts.change_task_status', contract_id=contract.id, task_id=t.id) }}"
+                      style="display:inline;">
+                    <input type="hidden" name="action" value="pause">
+                    <button type="submit">暂停</button>
+                </form>
+
+                <!-- 删除任务 -->
                 <form method="post"
                       action="{{ url_for('contracts.delete_task', contract_id=contract.id, task_id=t.id) }}"
                       style="display:inline;">
                     <button type="submit" onclick="return confirm('确认删除该任务？');">删除</button>
                 </form>
             </td>
+
         </tr>
         {% endfor %}
     </tbody>
@@ -114,11 +142,7 @@
     <p>
         <label>
             状态：
-            <select name="status">
-                <option value="未开始">未开始</option>
-                <option value="进行中">进行中</option>
-                <option value="已完成">已完成</option>
-            </select>
+            新增任务时默认状态为“未开始”，请在上方任务列表中通过按钮修改状态。
         </label>
     </p>
     <p>

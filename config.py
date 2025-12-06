@@ -8,7 +8,7 @@ class Config:
     # 注意把用户名、密码、数据库名改成你自己的
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         'FSZN_DATABASE_URI',
-        'mssql+pyodbc://fszn_test:fszn123!@localhost/fszn_db'
+        'mssql+pyodbc://fszn_user:fszn123!@localhost/fszn_db_product'
         '?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes'
     )
 

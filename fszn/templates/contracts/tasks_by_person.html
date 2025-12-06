@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block title %}按人员查看任务{% endblock %}
+
+{% block content %}
+<h1>按人员查看任务</h1>
+
+{{ super() }}
+
+<p>
+    <a href="{{ url_for('contracts.list_contracts') }}">返回项目列表</a> |
+    <a href="{{ url_for('contracts.tasks_by_department') }}">按部门</a> |
+    <a href="{{ url_for('contracts.tasks_by_person') }}">按人员</a>
+</p>
+
+{# 先展示有人员的任务 #}
+{% for p in persons %}
+    {% set person_tasks = tasks_by_person.get(p.id, []) %}
+<h2>{{ p.name }}{% if p.position %}（{{ p.position }}）{% endif %}</h2>
+
+    {% if person_tasks %}
+<p>任务数量：{{ person_tasks|length }}</p>
+<table border="1" cellpadding="4" cellspacing="0">
+    <thead>
+        <tr>
+            <th>项目编号</th>
+            <th>合同名称</th>
+            <th>任务ID</th>
+            <th>任务名称</th>
+            <th>所属部门</th>
+            <th>开始日期</th>
+            <th>完成日期</th>
+            <th>状态</th>
+            <th>备注</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in person_tasks %}
+        <tr>
+            <td>{{ t.contract.project_code if t.contract else '' }}</td>
+            <td>{{ t.contract.name if t.contract else '' }}</td>
+            <td>{{ t.id }}</td>
+            <td>{{ t.title }}</td>
+            <td>{{ t.department.name if t.department else '' }}</td>
+            <td>{{ t.start_date }}</td>
+            <td>{{ t.end_date or '' }}</td>
+            <td>{{ t.status }}</td>
+            <td>{{ t.remarks }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+    {% else %}
+<p>当前还没有分配给 {{ p.name }} 的任务。</p>
+    {% endif %}
+{% endfor %}
+
+{# 再展示未指定负责人的任务 #}
+{% set unassigned_tasks = tasks_by_person.get(None, []) %}
+<h2>未指定负责人</h2>
+{% if unassigned_tasks %}
+<p>任务数量：{{ unassigned_tasks|length }}</p>
+<table border="1" cellpadding="4" cellspacing="0">
+    <thead>
+        <tr>
+            <th>项目编号</th>
+            <th>合同名称</th>
+            <th>任务ID</th>
+            <th>任务名称</th>
+            <th>所属部门</th>
+            <th>开始日期</th>
+            <th>完成日期</th>
+            <th>状态</th>
+            <th>备注</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in unassigned_tasks %}
+        <tr>
+            <td>{{ t.contract.project_code if t.contract else '' }}</td>
+            <td>{{ t.contract.name if t.contract else '' }}</td>
+            <td>{{ t.id }}</td>
+            <td>{{ t.title }}</td>
+            <td>{{ t.department.name if t.department else '' }}</td>
+            <td>{{ t.start_date }}</td>
+            <td>{{ t.end_date or '' }}</td>
+            <td>{{ t.status }}</td>
+            <td>{{ t.remarks }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>当前不存在未指定负责人的任务。</p>
+{% endif %}
+
+{% endblock %}

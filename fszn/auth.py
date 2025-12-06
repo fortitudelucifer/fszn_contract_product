@@ -54,6 +54,11 @@ def register():
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip()
         email = (request.form.get('email') or '').strip()
+
+        # 新增：可选手机号和微信号
+        phone = (request.form.get('phone') or '').strip()
+        wechat = (request.form.get('wechat') or '').strip()
+
         password = request.form.get('password')
         confirm = request.form.get('confirm')
 
@@ -77,6 +82,8 @@ def register():
         user = User(
             username=username,
             email=email,
+            phone=phone, # or None     若为空字符串则存 None
+            wechat=wechat, # or None   若为空字符串则存 None
             password_hash=generate_password_hash(password),
             role = 'customer'
         )

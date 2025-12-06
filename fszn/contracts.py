@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
 from functools import wraps
 from datetime import datetime, date
 import os
@@ -18,44 +19,58 @@ from .models import (
     SalesInfo, ProjectFile
 )
 
+from .services.procurement_service import ProcurementService
+from .services.production_service import ProductionService
+from .services.acceptance_service import AcceptanceService
+from .services.feedback_service import FeedbackService
 
 
-# 根据任务、验收、付款、反馈等情况计算项目状态
 
+# ====== 状态计算辅助函数（重写版：只看生产 / 验收 / 反馈） ======
 def get_contract_status(contract: Contract):
-    """根据任务、验收、付款、反馈等情况计算项目状态"""
+    """根据任务、验收、反馈情况计算项目状态（不再依赖财务模块）。
+
+    返回:
+        (text, level)
+        text  : 状态文本（如 "未启动"、"生产中"、"验收中"、"已验收"、"已验收-有未解决问题"）
+        level : 用于前端上色的等级（如 "gray" / "blue" / "orange" / "green"）
+    """
     cid = contract.id
 
+    # 是否有任务 / 验收 / 未解决反馈
     has_tasks = Task.query.filter_by(contract_id=cid).count() > 0
-    has_acceptance = Acceptance.query.filter_by(contract_id=cid).count() > 0
-    has_payments = Payment.query.filter_by(contract_id=cid).count() > 0
-    has_invoices = Invoice.query.filter_by(contract_id=cid).count() > 0
-
-    # 有未解决反馈？
+    acceptances = Acceptance.query.filter_by(contract_id=cid).all()
+    has_acceptance = len(acceptances) > 0
     has_unresolved_feedback = Feedback.query.filter_by(
         contract_id=cid,
         is_resolved=False
     ).count() > 0
 
-    # 规则可以慢慢打磨，现在先用一个简化版：
-    if (not has_tasks) and (not has_acceptance) and (not has_payments) and (not has_invoices):
-        return "未启动", "grey"
+    # 1) 未启动：没有任务、也没有验收
+    if not has_tasks and not has_acceptance:
+        return "未启动", "gray"
 
+    # 2) 生产中：有任务，但还没有任何验收记录
     if has_tasks and not has_acceptance:
         return "生产中", "blue"
 
-    if has_acceptance and not has_payments:
-        return "已验收，待回款", "orange"
+    # 3) 有验收记录，区分验收中 / 已验收
+    #    - 只要存在非“通过”的验收记录，就认为“验收中”
+    any_not_passed = any(a.status != "通过" for a in acceptances)
 
-    if has_acceptance and has_payments and has_unresolved_feedback:
-        return "已回款，有未解决问题", "red"
+    if any_not_passed:
+        # 可以理解为还在验收流程中（可能部分通过、部分不通过）
+        return "验收中", "orange"
 
-    if has_acceptance and has_payments and not has_unresolved_feedback:
-        return "已完成", "green"
+    # 走到这里说明：所有验收记录的 status == "通过"
+    # 再根据是否有未解决反馈，区分两种情况：
 
-    # 兜底
-    return "进行中", "blue"
+    if has_unresolved_feedback:
+        # 已验收但是有遗留问题
+        return "已验收-有未解决问题", "orange"
 
+    # 默认：所有验收通过，且没有未解决反馈，视为“已验收（完成）”
+    return "已验收", "green"
 
 
 
@@ -352,13 +367,15 @@ def manage_tasks(contract_id):
 
     contract = Contract.query.get_or_404(contract_id)
 
+    # 使用 ProductionService 封装任务创建与状态流转
+    prod_service = ProductionService(db)
+
     if request.method == 'POST':
         department_id_raw = request.form.get('department_id')
         person_id_raw = request.form.get('person_id')
         title = (request.form.get('title') or '').strip()
         start_date_str = (request.form.get('start_date') or '').strip()
         end_date_str = (request.form.get('end_date') or '').strip()
-        status = (request.form.get('status') or '').strip() or '未开始'
         remarks = (request.form.get('remarks') or '').strip()
 
         if not department_id_raw or not title or not start_date_str:
@@ -381,20 +398,22 @@ def manage_tasks(contract_id):
             except ValueError:
                 person_id = None
 
-        task = Task(
-            contract_id=contract.id,
+        # 使用 ProductionService 创建任务，统一封装业务逻辑
+        # 状态不再从表单获取，使用服务默认的“未开始”
+        prod_service.create_task(
+            contract=contract,
             department_id=department_id,
-            person_id=person_id,
             title=title,
             start_date=start_date,
             end_date=end_date,
-            status=status,
+            person_id=person_id,
             remarks=remarks,
         )
-        db.session.add(task)
-        db.session.commit()
+
+
         flash('任务已创建')
         return redirect(url_for('contracts.manage_tasks', contract_id=contract.id))
+
 
     # GET: 展示任务列表和新增表单
     tasks = (
@@ -417,6 +436,74 @@ def manage_tasks(contract_id):
     )
 
 
+# ----------------------------------------------------------------------
+# 任务视图增强：按部门查看所有项目的任务总览
+# URL: /contracts/tasks/by_department
+# ----------------------------------------------------------------------
+@contracts_bp.route('/tasks/by_department')
+@login_required
+def tasks_by_department():
+    """按部门查看全项目任务列表"""
+    # 当前登录用户（主要用于模板中显示用户名/权限控制）
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    # 所有部门
+    departments = Department.query.order_by(Department.name.asc()).all()
+
+    # 所有任务，按开始日期排序
+    all_tasks = Task.query.order_by(Task.start_date.asc(), Task.id.asc()).all()
+
+    # 按部门分组任务：dept_id -> [Task, Task, ...]
+    tasks_by_dept = {}
+    for t in all_tasks:
+        dept_id = t.department_id
+        if dept_id not in tasks_by_dept:
+            tasks_by_dept[dept_id] = []
+        tasks_by_dept[dept_id].append(t)
+
+    return render_template(
+        'contracts/tasks_by_department.html',
+        user=user,
+        departments=departments,
+        tasks_by_dept=tasks_by_dept,
+    )
+
+
+# ----------------------------------------------------------------------
+# 任务视图增强：按人员查看所有项目的任务总览
+# URL: /contracts/tasks/by_person
+# ----------------------------------------------------------------------
+@contracts_bp.route('/tasks/by_person')
+@login_required
+def tasks_by_person():
+    """按人员查看全项目任务列表"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    # 所有人（未来可以按角色/部门筛选，这里先简单全部）
+    persons = Person.query.order_by(Person.name.asc()).all()
+
+    # 所有任务
+    all_tasks = Task.query.order_by(Task.start_date.asc(), Task.id.asc()).all()
+
+    # 按人员分组任务：person_id -> [Task, Task, ...]
+    tasks_by_person = {}
+    for t in all_tasks:
+        pid = t.person_id
+        if pid not in tasks_by_person:
+            tasks_by_person[pid] = []
+        tasks_by_person[pid].append(t)
+
+    return render_template(
+        'contracts/tasks_by_person.html',
+        user=user,
+        persons=persons,
+        tasks_by_person=tasks_by_person,
+    )
+
+
+
 @contracts_bp.route('/<int:contract_id>/tasks/<int:task_id>/delete', methods=['POST'])
 @login_required
 def delete_task(contract_id, task_id):
@@ -426,6 +513,40 @@ def delete_task(contract_id, task_id):
     db.session.commit()
     flash('任务已删除')
     return redirect(url_for('contracts.manage_tasks', contract_id=contract.id))
+
+# 任务状态变更
+
+@contracts_bp.route('/<int:contract_id>/tasks/<int:task_id>/status', methods=['POST'])
+@login_required
+def change_task_status(contract_id, task_id):
+    """变更单个任务的状态（开始 / 待质检 / 完成 / 暂停）。"""
+
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None  # 目前暂未使用，可用于权限控制
+
+    contract = Contract.query.get_or_404(contract_id)
+    task = Task.query.filter_by(id=task_id, contract_id=contract.id).first_or_404()
+
+    action = (request.form.get('action') or '').strip()
+    service = ProductionService(db)
+
+    if action == 'start':
+        service.start_task(task)
+        flash('任务已开始')
+    elif action == 'wait_qc':
+        service.mark_waiting_qc(task)
+        flash('任务已标记为待质检')
+    elif action == 'complete':
+        service.complete_task(task)
+        flash('任务已完成')
+    elif action == 'pause':
+        service.pause_task(task)
+        flash('任务已暂停')
+    else:
+        flash('无效的任务状态操作', 'error')
+
+    return redirect(url_for('contracts.manage_tasks', contract_id=contract.id))
+
 
 
 # 采购
@@ -438,6 +559,9 @@ def manage_procurements(contract_id):
     user = User.query.get(user_id) if user_id else None
 
     contract = Contract.query.get_or_404(contract_id)
+
+    # 使用业务 service 封装采购逻辑（含未来通知）
+    service = ProcurementService(db)
 
     if request.method == 'POST':
         item_name = (request.form.get('item_name') or '').strip()
@@ -458,19 +582,30 @@ def manage_procurements(contract_id):
 
         expected_date = parse_date(expected_date_str)
 
-        item = ProcurementItem(
-            contract_id=contract.id,
-            item_name=item_name,
-            quantity=quantity,
-            unit=unit,
-            expected_date=expected_date,
-            status=status,
-            remarks=remarks,
+        # 组装业务数据字典，交由 ProcurementService 处理
+        data = {
+            "item_name": item_name,
+            "quantity": quantity,
+            "unit": unit,
+            "expected_date": expected_date,
+            "remarks": remarks,
+            "status": status,  # 注意：当前 service 中未直接使用 status，如需持久化可后续同步调整
+        }
+
+        # 预留通知目标：
+        # 这里先用当前登录用户邮箱作为示例，将来可以改为项目负责人 / 采购专员等
+        notify_target = user.email if user and user.email else None
+
+        service.create_item(
+            contract=contract,
+            data=data,
+            notify_target=notify_target,
+            notify_channel="email",
         )
-        db.session.add(item)
-        db.session.commit()
+
         flash('采购项已添加')
         return redirect(url_for('contracts.manage_procurements', contract_id=contract.id))
+
 
     items = ProcurementItem.query.filter_by(contract_id=contract.id).order_by(
         ProcurementItem.id.asc()
@@ -685,13 +820,20 @@ def contract_overview(contract_id):
     # 销售信息（可能没有）
     sales = SalesInfo.query.filter_by(contract_id=contract.id).first()
 
-    # 各模块计数（不做金额统计，避免字段名对不上）
+    # === 使用新的生产视角状态计算函数 ===
+    status_text, status_level = get_contract_status(contract)
+
+    # 验收与反馈统计（使用 service 封装）
+    acc_service = AcceptanceService(db)
+    fb_service = FeedbackService(db)
+
+    acc_summary = acc_service.get_summary_for_contract(contract)
+    fb_summary = fb_service.get_summary_for_contract(contract)
+
+    # 各模块计数（暂时保留财务相关计数，后续可以逐步去掉对应视图）
     tasks_count = Task.query.filter_by(contract_id=contract.id).count()
     proc_count = ProcurementItem.query.filter_by(contract_id=contract.id).count()
     acc_count = Acceptance.query.filter_by(contract_id=contract.id).count()
-    pay_count = Payment.query.filter_by(contract_id=contract.id).count()
-    inv_count = Invoice.query.filter_by(contract_id=contract.id).count()
-    refund_count = Refund.query.filter_by(contract_id=contract.id).count()
     fb_count = Feedback.query.filter_by(contract_id=contract.id).count()
     files_count = ProjectFile.query.filter_by(contract_id=contract.id, is_deleted=False).count()
 
@@ -705,17 +847,14 @@ def contract_overview(contract_id):
             tasks=tasks_count,
             proc=proc_count,
             acc=acc_count,
-            pay=pay_count,
-            inv=inv_count,
-            refund=refund_count,
             fb=fb_count,
             files=files_count,
         ),
         status_text=status_text,
         status_level=status_level,
+        acc_summary=acc_summary,
+        fb_summary=fb_summary,
     )
-
-
 
 
 # 付款管理
