@@ -79,6 +79,13 @@
     未解决 {{ fb_summary.unresolved }} 条，
     已解决 {{ fb_summary.resolved }} 条。
 </p>
+
+<p>
+    <a href="{{ url_for('contracts.feedbacks_overview') }}" target="_blank">
+        查看全系统未解决反馈（售后问题看板）
+    </a>
+</p>
+
 <!-- 部门负责人总览 -->
 <h2>部门及负责人</h2>
 {% if leaders %}

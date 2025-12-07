@@ -6,6 +6,12 @@
 <h1>客户反馈与处理情况</h1>
 
 <p>
+    <a href="{{ url_for('contracts.feedbacks_overview') }}" target="_blank">
+        查看所有项目的未解决反馈（售后问题看板）
+    </a>
+</p>
+
+<p>
     <strong>项目编号：</strong>{{ contract.project_code }}<br>
     <strong>合同名称：</strong>{{ contract.name }}
 </p>
@@ -17,9 +23,6 @@
     <a href="{{ url_for('contracts.manage_tasks', contract_id=contract.id) }}">任务/进度</a> |
     <a href="{{ url_for('contracts.manage_procurements', contract_id=contract.id) }}">采购清单</a> |
     <a href="{{ url_for('contracts.manage_acceptances', contract_id=contract.id) }}">验收</a> |
-    <a href="{{ url_for('contracts.manage_payments', contract_id=contract.id) }}">付款</a> |
-    <a href="{{ url_for('contracts.manage_invoices', contract_id=contract.id) }}">开票</a> |
-    <a href="{{ url_for('contracts.manage_refunds', contract_id=contract.id) }}">退款</a> |
     <a href="{{ url_for('contracts.manage_feedbacks', contract_id=contract.id) }}">客户反馈</a> |
     <a href="{{ url_for('contracts.manage_files', contract_id=contract.id) }}">文件</a>
 

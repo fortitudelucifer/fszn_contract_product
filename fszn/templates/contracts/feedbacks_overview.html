@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+
+{% block title %}售后问题看板 - 未解决反馈{% endblock %}
+
+{% block content %}
+<h1>售后问题看板（未解决反馈）</h1>
+
+<p>
+    当前未解决反馈数量：<strong>{{ feedbacks|length }}</strong>
+</p>
+
+<form method="get" style="margin-bottom: 1em;">
+    <div style="margin-bottom: 0.5em;">
+        <label>
+            客户公司：
+            <input type="text" name="company" value="{{ company_filter or '' }}">
+        </label>
+
+        <label style="margin-left: 1em;">
+            项目编号：
+            <input type="text" name="project_code" value="{{ project_code_filter or '' }}">
+        </label>
+
+        <label style="margin-left: 1em;">
+            处理人：
+            <select name="handler_id">
+                <option value="">全部</option>
+                {% for p in persons %}
+                <option value="{{ p.id }}"
+                        {% if handler_filter and handler_filter|int==p.id %}selected{% endif %}>
+                    {{ p.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <button type="submit" style="margin-left: 1em;">筛选</button>
+        <a href="{{ url_for('contracts.feedbacks_overview') }}" style="margin-left: 0.5em;">清空</a>
+    </div>
+</form>
+
+<table border="1" cellspacing="0" cellpadding="4">
+    <thead>
+        <tr>
+            <th>客户公司</th>
+            <th>项目编号</th>
+            <th>合同编号</th>
+            <th>合同名称</th>
+            <th>反馈时间</th>
+            <th>反馈内容</th>
+            <th>处理人</th>
+            <th>处理结果</th>
+            <th>完成时间</th>
+            <th>状态</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% if feedbacks %}
+        {% for fb in feedbacks %}
+        <tr>
+            <td>{{ fb.contract.company.name if fb.contract and fb.contract.company else '' }}</td>
+            <td>{{ fb.contract.project_code if fb.contract else '' }}</td>
+            <td>{{ fb.contract.contract_number if fb.contract else '' }}</td>
+            <td>{{ fb.contract.name if fb.contract else '' }}</td>
+            <td>
+                {% if fb.feedback_time %}
+                {{ fb.feedback_time.strftime('%Y-%m-%d %H:%M') }}
+                {% endif %}
+            </td>
+            <td style="max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                {{ fb.content }}
+            </td>
+            <td>{{ fb.handler.name if fb.handler else '' }}</td>
+            <td style="max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                {{ fb.result or '' }}
+            </td>
+            <td>
+                {% if fb.completion_time %}
+                {{ fb.completion_time.strftime('%Y-%m-%d %H:%M') }}
+                {% endif %}
+            </td>
+            <td>
+                {% if fb.is_resolved %}
+                <span style="color: green;">已解决</span>
+                {% else %}
+                <span style="color: red;">未解决</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if fb.contract %}
+                <a href="{{ url_for('contracts.contract_overview', contract_id=fb.contract.id) }}">
+                    进入项目
+                </a>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        {% else %}
+        <tr>
+            <td colspan="11">当前没有未解决的反馈记录。</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+{% endblock %}

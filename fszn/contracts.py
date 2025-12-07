@@ -4,14 +4,16 @@ from __future__ import annotations
 from functools import wraps
 from datetime import datetime, date
 import os
+import csv
+from io import StringIO
 
 from flask import (
     Blueprint, render_template, request,
-    redirect, url_for, flash, session, send_from_directory, current_app
+    redirect, url_for, flash, session, send_from_directory, current_app, make_response
 )
 
 from . import db
-from .auth import login_required
+from .auth import login_required, staff_required
 from .models import (
     Contract, Company, User,
     Department, Person, ProjectDepartmentLeader,
@@ -662,6 +664,19 @@ def manage_acceptances(contract_id):
             except ValueError:
                 person_id = None
 
+        # 如果备注为空，且存在最近一个“已完成”的任务，则自动在备注中关联该任务
+        if not remarks:
+            last_task = (
+                Task.query
+                .filter_by(contract_id=contract.id, status="已完成")
+                # SQL Server 不支持 NULLS LAST，这里简单按完成日期倒序、ID 倒序
+                .order_by(Task.end_date.desc(), Task.id.desc())
+                .first()
+            )
+            if last_task:
+                remarks = f"关联任务：{last_task.title}"
+
+
         acc = Acceptance(
             contract_id=contract.id,
             stage_name=stage_name,
@@ -674,6 +689,7 @@ def manage_acceptances(contract_id):
         db.session.commit()
         flash('验收记录已添加')
         return redirect(url_for('contracts.manage_acceptances', contract_id=contract.id))
+
 
     records = (
         Acceptance.query.filter_by(contract_id=contract.id)
@@ -1121,6 +1137,118 @@ def delete_feedback(contract_id, feedback_id):
     db.session.commit()
     flash('反馈记录已删除')
     return redirect(url_for('contracts.manage_feedbacks', contract_id=contract.id))
+
+# ----------------------------------------------------------------------
+# 全局售后问题看板：未解决反馈总览 + 筛选 + CSV 导出
+# URL: /contracts/feedbacks/overview
+# ----------------------------------------------------------------------
+@contracts_bp.route('/feedbacks/overview')
+@login_required
+@staff_required
+def feedbacks_overview():
+    """未解决客户反馈总览（按公司/项目编号/负责人筛选，支持导出 CSV）"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    # 基础查询：只看未解决的反馈
+    query = (
+        Feedback.query
+        .join(Contract, Feedback.contract_id == Contract.id)
+        .join(Company, Contract.company_id == Company.id)
+        .outerjoin(Person, Feedback.handler_id == Person.id)
+        .filter(Feedback.is_resolved == False)
+    )
+
+    # ---- 筛选条件 ----
+    company_filter = (request.args.get('company') or '').strip()
+    project_code_filter = (request.args.get('project_code') or '').strip()
+    handler_filter = (request.args.get('handler_id') or '').strip()
+
+    if company_filter:
+        # 模糊匹配公司名称
+        query = query.filter(Company.name.contains(company_filter))
+
+    if project_code_filter:
+        # 模糊匹配项目编号
+        query = query.filter(Contract.project_code.contains(project_code_filter))
+
+    if handler_filter:
+        try:
+            handler_id = int(handler_filter)
+            query = query.filter(Feedback.handler_id == handler_id)
+        except ValueError:
+            # 非法 id 直接忽略这个条件
+            handler_filter = ""
+
+    # 按反馈时间倒序
+    feedbacks = (
+        query
+        .order_by(Feedback.feedback_time.desc(), Feedback.id.desc())
+        .all()
+    )
+
+    # 下拉列表数据
+    companies = Company.query.order_by(Company.name.asc()).all()
+    persons = Person.query.order_by(Person.name.asc()).all()
+
+    # # ---- CSV 导出 ----
+    # export = request.args.get('export')
+    # if export == 'csv':
+    #     sio = StringIO()
+    #     writer = csv.writer(sio)
+
+    #     # 表头
+    #     writer.writerow([
+    #         '客户公司',
+    #         '项目编号',
+    #         '合同编号',
+    #         '合同名称',
+    #         '反馈时间',
+    #         '反馈内容',
+    #         '处理工程师',
+    #         '处理结果',
+    #         '完成时间',
+    #         '是否已解决',
+    #     ])
+
+    #     for fb in feedbacks:
+    #         contract = fb.contract
+    #         company_name = contract.company.name if contract and contract.company else ''
+    #         handler_name = fb.handler.name if fb.handler else ''
+
+    #         writer.writerow([
+    #             company_name,
+    #             contract.project_code if contract else '',
+    #             contract.contract_number if contract else '',
+    #             contract.name if contract else '',
+    #             fb.feedback_time.strftime('%Y-%m-%d %H:%M') if fb.feedback_time else '',
+    #             (fb.content or '').replace('\r', ' ').replace('\n', ' '),
+    #             handler_name,
+    #             (fb.result or '').replace('\r', ' ').replace('\n', ' '),
+    #             fb.completion_time.strftime('%Y-%m-%d %H:%M') if fb.completion_time else '',
+    #             '是' if fb.is_resolved else '否',
+    #         ])
+
+    #     csv_data = sio.getvalue()
+    #     # 带 BOM，Excel 打开不会乱码
+    #     response = make_response(csv_data.encode('utf-8-sig'))
+    #     filename = f"feedbacks_overview_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    #     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    #     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    #     return response
+
+    # 普通页面渲染
+    return render_template(
+        'contracts/feedbacks_overview.html',
+        user=user,
+        feedbacks=feedbacks,
+        companies=companies,
+        persons=persons,
+        company_filter=company_filter,
+        project_code_filter=project_code_filter,
+        handler_filter=handler_filter,
+    )
+
 
 # 标记反馈为已解决 / 未解决
 
