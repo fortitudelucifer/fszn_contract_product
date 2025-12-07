@@ -26,6 +26,21 @@ from .services.production_service import ProductionService
 from .services.acceptance_service import AcceptanceService
 from .services.feedback_service import FeedbackService
 
+from .operation_log import (
+    log_operation,
+    OBJECT_TYPE_TASK,
+    OBJECT_TYPE_PROCUREMENT,
+    OBJECT_TYPE_ACCEPTANCE,
+    OBJECT_TYPE_FEEDBACK,
+    OBJECT_TYPE_CONTRACT,
+    OBJECT_TYPE_FILE,
+    ACTION_CREATE,
+    ACTION_UPDATE,
+    ACTION_DELETE,
+    ACTION_STATUS_CHANGE,
+    ACTION_UPLOAD,
+    ACTION_RESOLVE,
+)
 
 
 # ====== 状态计算辅助函数（重写版：只看生产 / 验收 / 反馈） ======
@@ -655,6 +670,9 @@ def change_task_status(contract_id, task_id):
     action = (request.form.get('action') or '').strip()
     service = ProductionService(db)
 
+    # 记录旧状态
+    old_status = task.status
+
     if action == 'start':
         service.start_task(task)
         flash('任务已开始')
@@ -669,6 +687,20 @@ def change_task_status(contract_id, task_id):
         flash('任务已暂停')
     else:
         flash('无效的任务状态操作', 'error')
+
+
+    # 统一写一条状态变更日志
+    log_operation(
+        operator=user,
+        object_type=OBJECT_TYPE_TASK,
+        object_id=task.id,
+        action=ACTION_STATUS_CHANGE,
+        old_data={"status": old_status},
+        new_data={"status": task.status},
+        request=request,
+    )
+
+    flash(msg)
 
     return redirect(url_for('contracts.manage_tasks', contract_id=contract.id))
 
@@ -721,12 +753,29 @@ def manage_procurements(contract_id):
         # 这里先用当前登录用户邮箱作为示例，将来可以改为项目负责人 / 采购专员等
         notify_target = user.email if user and user.email else None
 
-        service.create_item(
+        item = service.create_item(
             contract=contract,
             data=data,
             notify_target=notify_target,
             notify_channel="email",
         )
+
+        # 写一条“创建采购项”的日志
+        if item is not None:
+            log_operation(
+                operator=user,
+                object_type=OBJECT_TYPE_PROCUREMENT,
+                object_id=item.id,
+                action=ACTION_CREATE,
+                new_data={
+                    "item_name": item.item_name,
+                    "quantity": item.quantity,
+                    "unit": item.unit,
+                    "expected_date": item.expected_date.isoformat() if item.expected_date else None,
+                    "status": item.status,
+                },
+                request=request,
+            )
 
         flash('采购项已添加')
         return redirect(url_for('contracts.manage_procurements', contract_id=contract.id))
@@ -747,12 +796,37 @@ def manage_procurements(contract_id):
 @contracts_bp.route('/<int:contract_id>/procurements/<int:item_id>/delete', methods=['POST'])
 @login_required
 def delete_procurement(contract_id, item_id):
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
     contract = Contract.query.get_or_404(contract_id)
     item = ProcurementItem.query.filter_by(id=item_id, contract_id=contract.id).first_or_404()
+
+    # 先记录一份被删除前的数据快照
+    old_data = {
+        "item_name": item.item_name,
+        "quantity": item.quantity,
+        "unit": item.unit,
+        "expected_date": item.expected_date.isoformat() if item.expected_date else None,
+        "status": item.status,
+    }
+
     db.session.delete(item)
     db.session.commit()
+
+    # 删除之后写一条日志
+    log_operation(
+        operator=user,
+        object_type=OBJECT_TYPE_PROCUREMENT,
+        object_id=item.id,
+        action=ACTION_DELETE,
+        old_data=old_data,
+        request=request,
+    )
+
     flash('采购项已删除')
     return redirect(url_for('contracts.manage_procurements', contract_id=contract.id))
+
 
 # 验收
 @contracts_bp.route('/<int:contract_id>/acceptances', methods=['GET', 'POST'])
@@ -810,6 +884,24 @@ def manage_acceptances(contract_id):
         )
         db.session.add(acc)
         db.session.commit()
+
+        # 操作日志：创建验收记录
+        log_operation(
+            operator=user,
+            contract_id=contract.id,
+            object_type=OBJECT_TYPE_ACCEPTANCE,
+            object_id=acc.id,
+            action=ACTION_CREATE,
+            new_data={
+                "stage_name": acc.stage_name,
+                "person_id": acc.person_id,
+                "date": acc.date.isoformat() if acc.date else None,
+                "status": acc.status,
+                "remarks": acc.remarks,
+            },
+            request=request,
+        )
+
         flash('验收记录已添加')
         return redirect(url_for('contracts.manage_acceptances', contract_id=contract.id))
 
@@ -833,12 +925,38 @@ def manage_acceptances(contract_id):
 @contracts_bp.route('/<int:contract_id>/acceptances/<int:acc_id>/delete', methods=['POST'])
 @login_required
 def delete_acceptance(contract_id, acc_id):
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
     contract = Contract.query.get_or_404(contract_id)
     acc = Acceptance.query.filter_by(id=acc_id, contract_id=contract.id).first_or_404()
+
+    # 先留一份快照
+    old_data = {
+        "stage_name": acc.stage_name,
+        "person_id": acc.person_id,
+        "date": acc.date.isoformat() if acc.date else None,
+        "status": acc.status,
+        "remarks": acc.remarks,
+    }
+
     db.session.delete(acc)
     db.session.commit()
+
+    # 操作日志：删除验收记录
+    log_operation(
+        operator=user,
+        contract_id=contract.id,
+        object_type=OBJECT_TYPE_ACCEPTANCE,
+        object_id=acc.id,
+        action=ACTION_DELETE,
+        old_data=old_data,
+        request=request,
+    )
+
     flash('验收记录已删除')
     return redirect(url_for('contracts.manage_acceptances', contract_id=contract.id))
+
 
 # 销售管理
 
@@ -1111,8 +1229,25 @@ def manage_feedbacks(contract_id):
         )
         db.session.add(fb)
         db.session.commit()
+
+        # 写一条“创建反馈”的日志
+        log_operation(
+            operator=user,
+            object_type=OBJECT_TYPE_FEEDBACK,
+            object_id=fb.id,
+            action=ACTION_CREATE,
+            new_data={
+                "content": fb.content,
+                "handler_id": fb.handler_id,
+                "result": fb.result,
+                "completion_time": fb.completion_time.isoformat() if fb.completion_time else None,
+            },
+            request=request,
+        )
+
         flash('反馈记录已添加')
         return redirect(url_for('contracts.manage_feedbacks', contract_id=contract.id))
+
 
     records = Feedback.query.filter_by(contract_id=contract.id).order_by(
         Feedback.feedback_time.asc(), Feedback.id.asc()
@@ -1132,12 +1267,35 @@ def manage_feedbacks(contract_id):
 @contracts_bp.route('/<int:contract_id>/feedbacks/<int:feedback_id>/delete', methods=['POST'])
 @login_required
 def delete_feedback(contract_id, feedback_id):
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
     contract = Contract.query.get_or_404(contract_id)
     fb = Feedback.query.filter_by(id=feedback_id, contract_id=contract.id).first_or_404()
+
+    old_data = {
+        "content": fb.content,
+        "handler_id": fb.handler_id,
+        "result": fb.result,
+        "completion_time": fb.completion_time.isoformat() if fb.completion_time else None,
+        "is_resolved": fb.is_resolved,
+    }
+
     db.session.delete(fb)
     db.session.commit()
+
+    log_operation(
+        operator=user,
+        object_type=OBJECT_TYPE_FEEDBACK,
+        object_id=fb.id,
+        action=ACTION_DELETE,
+        old_data=old_data,
+        request=request,
+    )
+
     flash('反馈记录已删除')
     return redirect(url_for('contracts.manage_feedbacks', contract_id=contract.id))
+
 
 # ----------------------------------------------------------------------
 # 全局售后问题看板：未解决反馈总览 + 筛选 + CSV 导出
@@ -1263,12 +1421,31 @@ def resolve_feedback(contract_id, feedback_id):
     contract = Contract.query.get_or_404(contract_id)
     fb = Feedback.query.filter_by(id=feedback_id, contract_id=contract.id).first_or_404()
 
+    old_data = {
+        "is_resolved": fb.is_resolved,
+        "completion_time": fb.completion_time.isoformat() if fb.completion_time else None,
+    }
+
     fb.is_resolved = True
-    fb.completion_time = datetime.utcnow()   # 解决时间写入 completion_time
+    fb.completion_time = datetime.utcnow()
     db.session.commit()
+
+    log_operation(
+        operator=user,
+        object_type=OBJECT_TYPE_FEEDBACK,
+        object_id=fb.id,
+        action=ACTION_RESOLVE,
+        old_data=old_data,
+        new_data={
+            "is_resolved": fb.is_resolved,
+            "completion_time": fb.completion_time.isoformat(),
+        },
+        request=request,
+    )
 
     flash('该反馈已标记为“已解决”。')
     return redirect(url_for('contracts.manage_feedbacks', contract_id=contract.id))
+
 
 
 @contracts_bp.route('/<int:contract_id>/feedbacks/<int:feedback_id>/unresolve', methods=['POST'])
@@ -1371,6 +1548,23 @@ def manage_files(contract_id):
         db.session.add(pf)
         db.session.commit()
 
+        # 操作日志：上传文件
+        log_operation(
+            operator=user,
+            contract_id=contract.id,
+            object_type=OBJECT_TYPE_FILE,
+            object_id=pf.id,
+            action=ACTION_UPLOAD,
+            new_data={
+                "file_type": pf.file_type,
+                "version": pf.version,
+                "original_filename": pf.original_filename,
+                "stored_filename": pf.stored_filename,
+                "is_public": pf.is_public,
+            },
+            request=request,
+        )
+
         flash('文件上传成功')
         return redirect(url_for('contracts.manage_files', contract_id=contract.id))
 
@@ -1446,8 +1640,29 @@ def delete_file(contract_id, file_id):
         flash('你没有权限删除此文件')
         return redirect(url_for('contracts.manage_files', contract_id=contract.id))
 
+    old_data = {
+        "file_type": pf.file_type,
+        "version": pf.version,
+        "original_filename": pf.original_filename,
+        "stored_filename": pf.stored_filename,
+        "is_public": pf.is_public,
+        "is_deleted": pf.is_deleted,
+    }
+
     pf.is_deleted = True
     db.session.commit()
+
+    # 操作日志：删除文件（标记为删除）
+    log_operation(
+        operator=user,
+        contract_id=contract.id,
+        object_type=OBJECT_TYPE_FILE,
+        object_id=pf.id,
+        action=ACTION_DELETE,
+        old_data=old_data,
+        new_data={"is_deleted": True},
+        request=request,
+    )
 
     flash('文件已标记为删除（普通用户将无法再访问）')
     return redirect(url_for('contracts.manage_files', contract_id=contract.id))

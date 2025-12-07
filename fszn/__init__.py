@@ -38,6 +38,11 @@ def create_app():
     from .org import org_bp
     app.register_blueprint(org_bp, url_prefix='/org')
 
+    # 操作日志
+    from .logs import logs_bp
+    app.register_blueprint(logs_bp, url_prefix='/logs')
+
+
     @app.route('/')
     def home():
         from .models import User

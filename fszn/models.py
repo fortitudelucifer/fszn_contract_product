@@ -293,3 +293,32 @@ class ProjectFile(db.Model):
 
     contract = db.relationship('Contract', backref='files')
     uploader = db.relationship('User', backref='uploaded_files')
+
+class OperationLog(db.Model):
+    __tablename__ = 'operation_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # 执行操作的用户（可以为空，例如系统定时任务）
+    operator_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    # 对象类型：task / procurement / acceptance / feedback / contract / file
+    object_type = db.Column(db.String(50), nullable=False)
+
+    # 对象记录 ID（如 Task.id / ProcurementItem.id 等）
+    object_id = db.Column(db.Integer, nullable=False)
+
+    # 动作类型：create / update / delete / status_change / upload / resolve 等
+    action = db.Column(db.String(50), nullable=False)
+
+    # 变更详情 JSON 字符串：{"old": {...}, "new": {...}}
+    detail_json = db.Column(db.Text)
+
+    # 触发操作的 IP 地址
+    ip_address = db.Column(db.String(50))
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # 反向关联：一个用户有很多操作日志
+    operator = db.relationship('User', backref='operation_logs')
+    contract = db.relationship('Contract', backref='operation_logs')
