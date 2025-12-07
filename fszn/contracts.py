@@ -188,8 +188,32 @@ def list_contracts():
     if user_id:
         user = User.query.get(user_id)
 
+        # 基础查询：后面在上面叠加筛选条件
+    query = Contract.query.join(Company)
+
+    # 读取筛选条件（GET 参数）
+    company_name = (request.args.get('company') or '').strip()
+    project_code = (request.args.get('project_code') or '').strip()
+    contract_number = (request.args.get('contract_number') or '').strip()
+    name = (request.args.get('name') or '').strip()
+    our_manager = (request.args.get('our_manager') or '').strip()
+    status_filter = (request.args.get('status') or '').strip()
+
+    # 按条件过滤（全部是“包含”匹配）
+    if company_name:
+        query = query.filter(Company.name.contains(company_name))
+    if project_code:
+        query = query.filter(Contract.project_code.contains(project_code))
+    if contract_number:
+        query = query.filter(Contract.contract_number.contains(contract_number))
+    if name:
+        query = query.filter(Contract.name.contains(name))
+    if our_manager:
+        query = query.filter(Contract.our_manager.contains(our_manager))
+
     # 按创建时间倒序，最近的项目在前
-    contracts = Contract.query.order_by(Contract.created_at.desc()).all()
+    contracts = query.order_by(Contract.created_at.desc()).all()
+
 
     # 1）构造：每个合同的 “部门 -> [负责人列表]”
     leaders_by_contract = {}
@@ -210,12 +234,30 @@ def list_contracts():
         status_text, status_level = get_contract_status(c)
         status_map[c.id] = dict(text=status_text, level=status_level)
 
+    # 如果设置了状态筛选，则在内存中按状态文本过滤
+    if status_filter:
+        filtered_contracts = []
+        for c in contracts:
+            st = status_map.get(c.id)
+            if not st:
+                continue
+            if st.get("text") == status_filter:
+                filtered_contracts.append(c)
+        contracts = filtered_contracts
+
     return render_template(
         'contracts/list.html',
         user=user,
         contracts=contracts,
         leaders_by_contract=leaders_by_contract,
         statuses=status_map,
+        # 把当前的筛选条件传回模板，便于回显
+        company=company_name,
+        project_code=project_code,
+        contract_number=contract_number,
+        name=name,
+        our_manager=our_manager,
+        status_filter=status_filter,
     )
 
 
@@ -445,31 +487,74 @@ def manage_tasks(contract_id):
 @contracts_bp.route('/tasks/by_department')
 @login_required
 def tasks_by_department():
-    """按部门查看全项目任务列表"""
+    """按部门查看全项目任务列表（含简单筛选和统计）"""
     # 当前登录用户（主要用于模板中显示用户名/权限控制）
     user_id = session.get('user_id')
     user = User.query.get(user_id) if user_id else None
 
-    # 所有部门
+    # ---- 1. 解析筛选条件（GET 参数） ----
+    status_filter = (request.args.get('status') or '').strip()
+    only_today = (request.args.get('only_today') or '').strip() == 'y'
+
+    # ---- 2. 基础数据：部门列表 ----
     departments = Department.query.order_by(Department.name.asc()).all()
 
-    # 所有任务，按开始日期排序
-    all_tasks = Task.query.order_by(Task.start_date.asc(), Task.id.asc()).all()
+    # ---- 3. 按筛选条件获取任务列表 ----
+    query = Task.query.order_by(Task.start_date.asc(), Task.id.asc())
+    if status_filter:
+        query = query.filter(Task.status == status_filter)
 
-    # 按部门分组任务：dept_id -> [Task, Task, ...]
-    tasks_by_dept = {}
+    all_tasks = query.all()
+
+    today = date.today()
+
+    # 根据“只看今天”筛选出要展示的任务
+    display_tasks = []
     for t in all_tasks:
+        if only_today:
+            # 这里简单按“开始日期 == 今天”来定义“今天的任务”
+            if not (t.start_date == today):
+                continue
+        display_tasks.append(t)
+
+    # ---- 4. 统计卡片数据（基于展示任务） ----
+    total_count = len(display_tasks)
+    today_count = sum(1 for t in display_tasks if t.start_date == today)
+    todo_count = sum(
+        1
+        for t in display_tasks
+        if t.status in ("未开始", "进行中", "待质检")
+    )
+    done_count = sum(1 for t in display_tasks if t.status == "已完成")
+
+    stats = {
+        "total": total_count,
+        "today": today_count,
+        "todo": todo_count,
+        "done": done_count,
+    }
+
+    # ---- 5. 按部门分组任务：dept_id -> [Task, Task, ...] ----
+    tasks_by_dept = {}
+    for t in display_tasks:
         dept_id = t.department_id
-        if dept_id not in tasks_by_dept:
-            tasks_by_dept[dept_id] = []
-        tasks_by_dept[dept_id].append(t)
+        tasks_by_dept.setdefault(dept_id, []).append(t)
+
+    # 用于下拉框的状态选项
+    status_choices = ["", "未开始", "进行中", "待质检", "已完成", "已暂停"]
 
     return render_template(
         'contracts/tasks_by_department.html',
         user=user,
         departments=departments,
         tasks_by_dept=tasks_by_dept,
+        stats=stats,
+        status_choices=status_choices,
+        current_status=status_filter,
+        only_today=only_today,
+        today=today,
     )
+
 
 
 # ----------------------------------------------------------------------
@@ -479,29 +564,67 @@ def tasks_by_department():
 @contracts_bp.route('/tasks/by_person')
 @login_required
 def tasks_by_person():
-    """按人员查看全项目任务列表"""
+    """按人员查看全项目任务列表（含简单筛选和统计）"""
     user_id = session.get('user_id')
     user = User.query.get(user_id) if user_id else None
+
+    # ---- 1. 解析筛选条件 ----
+    status_filter = (request.args.get('status') or '').strip()
+    only_today = (request.args.get('only_today') or '').strip() == 'y'
 
     # 所有人（未来可以按角色/部门筛选，这里先简单全部）
     persons = Person.query.order_by(Person.name.asc()).all()
 
-    # 所有任务
-    all_tasks = Task.query.order_by(Task.start_date.asc(), Task.id.asc()).all()
+    # ---- 2. 获取任务并按筛选条件过滤 ----
+    query = Task.query.order_by(Task.start_date.asc(), Task.id.asc())
+    if status_filter:
+        query = query.filter(Task.status == status_filter)
 
-    # 按人员分组任务：person_id -> [Task, Task, ...]
-    tasks_by_person = {}
+    all_tasks = query.all()
+    today = date.today()
+
+    display_tasks = []
     for t in all_tasks:
-        pid = t.person_id
-        if pid not in tasks_by_person:
-            tasks_by_person[pid] = []
-        tasks_by_person[pid].append(t)
+        if only_today:
+            if not (t.start_date == today):
+                continue
+        display_tasks.append(t)
+
+    # ---- 3. 统计卡片数据 ----
+    total_count = len(display_tasks)
+    today_count = sum(1 for t in display_tasks if t.start_date == today)
+    todo_count = sum(
+        1
+        for t in display_tasks
+        if t.status in ("未开始", "进行中", "待质检")
+    )
+    done_count = sum(1 for t in display_tasks if t.status == "已完成")
+
+    stats = {
+        "total": total_count,
+        "today": today_count,
+        "todo": todo_count,
+        "done": done_count,
+    }
+
+    # ---- 4. 按人员分组任务：person_id -> [Task, Task, ...] ----
+    tasks_by_person = {}
+    for t in display_tasks:
+        pid = t.person_id  # 允许为 None，模板里单独显示“未指派”
+        tasks_by_person.setdefault(pid, []).append(t)
+
+    status_choices = ["", "未开始", "进行中", "待质检", "已完成", "已暂停"]
 
     return render_template(
         'contracts/tasks_by_person.html',
         user=user,
         persons=persons,
         tasks_by_person=tasks_by_person,
+        stats=stats,
+        status_choices=status_choices,
+        current_status=status_filter,
+        only_today=only_today,
+        today=today,
     )
 
 
@@ -873,200 +996,78 @@ def contract_overview(contract_id):
     )
 
 
-# 付款管理
-@contracts_bp.route('/<int:contract_id>/payments', methods=['GET', 'POST'])
-@login_required
-def manage_payments(contract_id):
-    """管理某个项目的客户付款记录"""
-    user_id = session.get('user_id')
-    user = User.query.get(user_id) if user_id else None
+# # 付款管理
+# @contracts_bp.route('/<int:contract_id>/payments', methods=['GET', 'POST'])
+# @login_required
+# def manage_payments(contract_id):
+#     """管理某个项目的客户付款记录（已下线）"""
+#     user_id = session.get('user_id')
+#     user = User.query.get(user_id) if user_id else None
 
-    contract = Contract.query.get_or_404(contract_id)
+#     contract = Contract.query.get_or_404(contract_id)
 
-    if request.method == 'POST':
-        amount_raw = (request.form.get('amount') or '').strip()
-        date_str = (request.form.get('date') or '').strip()
-        method = (request.form.get('method') or '').strip()
-        remarks = (request.form.get('remarks') or '').strip()
+#     # 财务模块已从系统中下线，这里只做友好提示并跳回项目总览
+#     flash('财务模块已下线，如需处理付款请使用外部财务系统。', 'info')
+#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
 
-        if not amount_raw or not date_str:
-            flash('金额和日期为必填')
-            return redirect(url_for('contracts.manage_payments', contract_id=contract.id))
+# # 删除付款记录（已下线）
 
-        try:
-            amount = float(amount_raw)
-        except ValueError:
-            flash('金额格式错误')
-            return redirect(url_for('contracts.manage_payments', contract_id=contract.id))
-
-        d = parse_date(date_str)
-        if not d:
-            flash('日期格式错误')
-            return redirect(url_for('contracts.manage_payments', contract_id=contract.id))
-
-        p = Payment(
-            contract_id=contract.id,
-            amount=amount,
-            date=d,
-            method=method,
-            remarks=remarks,
-        )
-        db.session.add(p)
-        db.session.commit()
-        flash('付款记录已添加')
-        return redirect(url_for('contracts.manage_payments', contract_id=contract.id))
-
-    records = Payment.query.filter_by(contract_id=contract.id).order_by(
-        Payment.date.asc(), Payment.id.asc()
-    ).all()
-
-    return render_template(
-        'contracts/payments.html',
-        user=user,
-        contract=contract,
-        records=records,
-    )
+# @contracts_bp.route('/<int:contract_id>/payments/<int:pay_id>/delete', methods=['POST'])
+# @login_required
+# def delete_payment(contract_id, pay_id):
+#     """删除付款记录（功能已下线）"""
+#     contract = Contract.query.get_or_404(contract_id)
+#     flash('财务模块已下线，不能在系统内删除付款记录。', 'info')
+#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
 
 
-@contracts_bp.route('/<int:contract_id>/payments/<int:pay_id>/delete', methods=['POST'])
-@login_required
-def delete_payment(contract_id, pay_id):
-    contract = Contract.query.get_or_404(contract_id)
-    p = Payment.query.filter_by(id=pay_id, contract_id=contract.id).first_or_404()
-    db.session.delete(p)
-    db.session.commit()
-    flash('付款记录已删除')
-    return redirect(url_for('contracts.manage_payments', contract_id=contract.id))
+# # 发票管理
+# @contracts_bp.route('/<int:contract_id>/invoices', methods=['GET', 'POST'])
+# @login_required
+# def manage_invoices(contract_id):
+#     """管理某个项目的开票记录（已下线）"""
+#     user_id = session.get('user_id')
+#     user = User.query.get(user_id) if user_id else None
 
-# 发票管理
-@contracts_bp.route('/<int:contract_id>/invoices', methods=['GET', 'POST'])
-@login_required
-def manage_invoices(contract_id):
-    """管理某个项目的开票记录"""
-    user_id = session.get('user_id')
-    user = User.query.get(user_id) if user_id else None
+#     contract = Contract.query.get_or_404(contract_id)
 
-    contract = Contract.query.get_or_404(contract_id)
-
-    if request.method == 'POST':
-        invoice_number = (request.form.get('invoice_number') or '').strip()
-        amount_raw = (request.form.get('amount') or '').strip()
-        date_str = (request.form.get('date') or '').strip()
-        remarks = (request.form.get('remarks') or '').strip()
-
-        if not amount_raw or not date_str:
-            flash('金额和日期为必填')
-            return redirect(url_for('contracts.manage_invoices', contract_id=contract.id))
-
-        try:
-            amount = float(amount_raw)
-        except ValueError:
-            flash('金额格式错误')
-            return redirect(url_for('contracts.manage_invoices', contract_id=contract.id))
-
-        d = parse_date(date_str)
-        if not d:
-            flash('日期格式错误')
-            return redirect(url_for('contracts.manage_invoices', contract_id=contract.id))
-
-        inv = Invoice(
-            contract_id=contract.id,
-            invoice_number=invoice_number or None,
-            amount=amount,
-            date=d,
-            remarks=remarks,
-        )
-        db.session.add(inv)
-        db.session.commit()
-        flash('开票记录已添加')
-        return redirect(url_for('contracts.manage_invoices', contract_id=contract.id))
-
-    records = Invoice.query.filter_by(contract_id=contract.id).order_by(
-        Invoice.date.asc(), Invoice.id.asc()
-    ).all()
-
-    return render_template(
-        'contracts/invoices.html',
-        user=user,
-        contract=contract,
-        records=records,
-    )
+#     flash('财务模块已下线，如需处理开票请使用外部财务系统。', 'info')
+#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
 
 
-@contracts_bp.route('/<int:contract_id>/invoices/<int:inv_id>/delete', methods=['POST'])
-@login_required
-def delete_invoice(contract_id, inv_id):
-    contract = Contract.query.get_or_404(contract_id)
-    inv = Invoice.query.filter_by(id=inv_id, contract_id=contract.id).first_or_404()
-    db.session.delete(inv)
-    db.session.commit()
-    flash('开票记录已删除')
-    return redirect(url_for('contracts.manage_invoices', contract_id=contract.id))
-
-# 退款管理
-@contracts_bp.route('/<int:contract_id>/refunds', methods=['GET', 'POST'])
-@login_required
-def manage_refunds(contract_id):
-    """管理某个项目的退款记录"""
-    user_id = session.get('user_id')
-    user = User.query.get(user_id) if user_id else None
-
-    contract = Contract.query.get_or_404(contract_id)
-
-    if request.method == 'POST':
-        amount_raw = (request.form.get('amount') or '').strip()
-        date_str = (request.form.get('date') or '').strip()
-        reason = (request.form.get('reason') or '').strip()
-        remarks = (request.form.get('remarks') or '').strip()
-
-        if not amount_raw or not date_str:
-            flash('金额和日期为必填')
-            return redirect(url_for('contracts.manage_refunds', contract_id=contract.id))
-
-        try:
-            amount = float(amount_raw)
-        except ValueError:
-            flash('金额格式错误')
-            return redirect(url_for('contracts.manage_refunds', contract_id=contract.id))
-
-        d = parse_date(date_str)
-        if not d:
-            flash('日期格式错误')
-            return redirect(url_for('contracts.manage_refunds', contract_id=contract.id))
-
-        r = Refund(
-            contract_id=contract.id,
-            amount=amount,
-            date=d,
-            reason=reason,
-            remarks=remarks,
-        )
-        db.session.add(r)
-        db.session.commit()
-        flash('退款记录已添加')
-        return redirect(url_for('contracts.manage_refunds', contract_id=contract.id))
-
-    records = Refund.query.filter_by(contract_id=contract.id).order_by(
-        Refund.date.asc(), Refund.id.asc()
-    ).all()
-
-    return render_template(
-        'contracts/refunds.html',
-        user=user,
-        contract=contract,
-        records=records,
-    )
+# # 删除开票记录（已下线）
+# @contracts_bp.route('/<int:contract_id>/invoices/<int:inv_id>/delete', methods=['POST'])
+# @login_required
+# def delete_invoice(contract_id, inv_id):
+#     """删除开票记录（功能已下线）"""
+#     contract = Contract.query.get_or_404(contract_id)
+#     flash('财务模块已下线，不能在系统内删除开票记录。', 'info')
+#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
 
 
-@contracts_bp.route('/<int:contract_id>/refunds/<int:ref_id>/delete', methods=['POST'])
-@login_required
-def delete_refund(contract_id, ref_id):
-    contract = Contract.query.get_or_404(contract_id)
-    r = Refund.query.filter_by(id=ref_id, contract_id=contract.id).first_or_404()
-    db.session.delete(r)
-    db.session.commit()
-    flash('退款记录已删除')
-    return redirect(url_for('contracts.manage_refunds', contract_id=contract.id))
+# # 退款管理
+# @contracts_bp.route('/<int:contract_id>/refunds', methods=['GET', 'POST'])
+# @login_required
+# def manage_refunds(contract_id):
+#     """管理某个项目的退款记录（已下线）"""
+#     user_id = session.get('user_id')
+#     user = User.query.get(user_id) if user_id else None
+
+#     contract = Contract.query.get_or_404(contract_id)
+
+#     flash('财务模块已下线，如需处理退款请使用外部财务系统。', 'info')
+#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
+
+
+
+# @contracts_bp.route('/<int:contract_id>/refunds/<int:ref_id>/delete', methods=['POST'])
+# @login_required
+# def delete_refund(contract_id, ref_id):
+#     """删除退款记录（功能已下线）"""
+#     contract = Contract.query.get_or_404(contract_id)
+#     flash('财务模块已下线，不能在系统内删除退款记录。', 'info')
+#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
+
 
 # 客户反馈
 @contracts_bp.route('/<int:contract_id>/feedbacks', methods=['GET', 'POST'])

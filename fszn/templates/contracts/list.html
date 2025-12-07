@@ -6,8 +6,49 @@
 <h1>项目 / 合同列表</h1>
 
 <p>
-    <a href="{{ url_for('contracts.new_contract') }}">新建项目/合同</a>
+    <a href="{{ url_for('contracts.new_contract') }}">新建项目/合同</a> |
+    <a href="{{ url_for('contracts.tasks_by_department') }}">任务总览（按部门）</a> |
+    <a href="{{ url_for('contracts.tasks_by_person') }}">任务总览（按人员）</a>
 </p>
+
+<form method="get" style="margin-bottom: 1em;">
+    <label>
+        客户公司：
+        <input type="text" name="company" value="{{ company or '' }}">
+    </label>
+
+    <label style="margin-left: 1em;">
+        项目编号：
+        <input type="text" name="project_code" value="{{ project_code or '' }}">
+    </label>
+
+    <label style="margin-left: 1em;">
+        合同名称：
+        <input type="text" name="name" value="{{ name or '' }}">
+    </label>
+
+    <label style="margin-left: 1em;">
+        我方负责人：
+        <input type="text" name="our_manager" value="{{ our_manager or '' }}">
+    </label>
+
+    <label style="margin-left: 1em;">
+        状态：
+        <select name="status">
+            <option value="">全部</option>
+            {% set statuses_all = ['未启动', '生产中', '验收中', '已验收', '已验收-有未解决问题'] %}
+            {% for st_text in statuses_all %}
+            <option value="{{ st_text }}"
+                    {% if status_filter==st_text %}selected{% endif %}>
+                {{ st_text }}
+            </option>
+            {% endfor %}
+        </select>
+    </label>
+
+    <button type="submit" style="margin-left: 1em;">筛选</button>
+    <a href="{{ url_for('contracts.list_contracts') }}" style="margin-left: 0.5em;">清空</a>
+</form>
 
   {% if contracts %}
 <table border="1" cellpadding="4" cellspacing="0">
@@ -96,6 +137,7 @@
                 <a href="{{ url_for('contracts.manage_leaders', contract_id=c.id) }}">负责人</a> |
                 <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">任务</a> |
                 <a href="{{ url_for('contracts.manage_procurements', contract_id=c.id) }}">采购</a> |
+                <a href="{{ url_for('contracts.manage_acceptances', contract_id=c.id) }}">验收</a> |
                 <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">客户反馈</a> |
                 <a href="{{ url_for('contracts.manage_files', contract_id=c.id) }}">文件</a>
             </td>

@@ -1,56 +1,97 @@
 {% extends 'base.html' %}
 
-{% block title %}按部门查看任务{% endblock %}
+{% block title %}任务总览 - 按部门{% endblock %}
 
 {% block content %}
-<h1>按部门查看任务</h1>
-
-{{ super() }}
+<h1>任务总览（按部门）</h1>
 
 <p>
-    <a href="{{ url_for('contracts.list_contracts') }}">返回项目列表</a> |
     <a href="{{ url_for('contracts.tasks_by_department') }}">按部门</a> |
-    <a href="{{ url_for('contracts.tasks_by_person') }}">按人员</a>
+    <a href="{{ url_for('contracts.tasks_by_person') }}">按人员</a> |
+    <a href="{{ url_for('contracts.list_contracts') }}">返回项目列表</a>
 </p>
 
-{% for d in departments %}
-<h2>{{ d.name }}</h2>
+<!-- 筛选条件 -->
+<form method="get" style="margin: 1em 0;">
+    <label>
+        状态：
+        <select name="status">
+            <option value="">全部</option>
+            {% for s in status_choices %}
+            {% if s %}
+            <option value="{{ s }}" {% if current_status==s %}selected{% endif %}>{{ s }}</option>
+            {% endif %}
+            {% endfor %}
+        </select>
+    </label>
 
-    {% set dept_tasks = tasks_by_dept.get(d.id, []) %}
+    <label style="margin-left: 1em;">
+        <input type="checkbox" name="only_today" value="y" {% if only_today %}checked{% endif %}>
+        只看今天的任务（{{ today.strftime('%Y-%m-%d') }}）
+    </label>
+
+    <button type="submit" style="margin-left: 1em;">筛选</button>
+</form>
+
+<!-- 统计小卡片 -->
+{% if stats %}
+<div style="display: flex; gap: 1em; margin-bottom: 1em; flex-wrap: wrap;">
+    <div style="border: 1px solid #ccc; padding: 0.5em 1em;">
+        <strong>今日任务</strong><br>
+        {{ stats.today }}
+    </div>
+    <div style="border: 1px solid #ccc; padding: 0.5em 1em;">
+        <strong>待办任务</strong><br>
+        {{ stats.todo }}
+    </div>
+    <div style="border: 1px solid #ccc; padding: 0.5em 1em;">
+        <strong>已完成</strong><br>
+        {{ stats.done }}
+    </div>
+    <div style="border: 1px solid #ccc; padding: 0.5em 1em;">
+        <strong>当前列表总数</strong><br>
+        {{ stats.total }}
+    </div>
+</div>
+{% endif %}
+
+{% if stats.total == 0 %}
+<p>当前没有符合筛选条件的任务。</p>
+{% endif %}
+
+<!-- 按部门分组的任务列表 -->
+{% for dept in departments %}
+    {% set dept_tasks = tasks_by_dept.get(dept.id, []) %}
     {% if dept_tasks %}
-<p>任务数量：{{ dept_tasks|length }}</p>
-<table border="1" cellpadding="4" cellspacing="0">
+<h2 style="margin-top: 1.5em;">{{ dept.name }}（{{ dept_tasks|length }} 条任务）</h2>
+<table border="1" cellpadding="4" cellspacing="0" width="100%">
     <thead>
         <tr>
             <th>项目编号</th>
             <th>合同名称</th>
-            <th>任务ID</th>
             <th>任务名称</th>
             <th>负责人</th>
             <th>开始日期</th>
-            <th>完成日期</th>
+            <th>结束日期</th>
             <th>状态</th>
             <th>备注</th>
         </tr>
     </thead>
     <tbody>
-        {% for t in dept_tasks %}
+        {% for task in dept_tasks %}
         <tr>
-            <td>{{ t.contract.project_code if t.contract else '' }}</td>
-            <td>{{ t.contract.name if t.contract else '' }}</td>
-            <td>{{ t.id }}</td>
-            <td>{{ t.title }}</td>
-            <td>{{ t.person.name if t.person else '' }}</td>
-            <td>{{ t.start_date }}</td>
-            <td>{{ t.end_date or '' }}</td>
-            <td>{{ t.status }}</td>
-            <td>{{ t.remarks }}</td>
+            <td>{{ task.contract.project_code }}</td>
+            <td>{{ task.contract.name }}</td>
+            <td>{{ task.title }}</td>
+            <td>{{ task.person.name if task.person else '' }}</td>
+            <td>{{ task.start_date.strftime('%Y-%m-%d') if task.start_date else '' }}</td>
+            <td>{{ task.end_date.strftime('%Y-%m-%d') if task.end_date else '' }}</td>
+            <td>{{ task.status }}</td>
+            <td>{{ task.remarks or '' }}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
-    {% else %}
-<p>当前部门还没有任何任务。</p>
     {% endif %}
 {% endfor %}
 
