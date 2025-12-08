@@ -113,6 +113,15 @@ ROLE_ALLOWED_TYPES = {
 }
 
 notification_service = DummyNotificationService()
+# 手工通知的事件类型列表（仅用于界面展示和日志记录）
+NOTIFICATION_EVENT_CHOICES = [
+    ('CONTRACT_PROGRESS', '项目进度更新'),
+    ('CONTRACT_DELAY', '项目延期提醒'),
+    ('CONTRACT_ACCEPTANCE', '验收/交付提醒'),
+    ('PROCUREMENT_UPDATE', '采购进展通知'),
+    ('OTHER', '其他自定义事件'),
+]
+
 
 def allowed_file(filename: str) -> bool:
     if not filename or '.' not in filename:
@@ -533,20 +542,43 @@ def edit_contract(contract_id: int):
 @contracts_bp.route('/<int:contract_id>/notify', methods=['GET', 'POST'])
 @login_required
 def notify_contract(contract_id: int):
-    """针对单个项目/合同发送通知（目前使用 DummyNotificationService 打印日志）。"""
+    """针对单个项目/合同发送通知（手动选择事件和接收用户）。"""
     user_id = session.get('user_id')
     user = User.query.get(user_id) if user_id else None
 
     contract = Contract.query.get_or_404(contract_id)
+
+    # 所有已注册用户，用于在前端下拉框中选择接收人
+    users = User.query.order_by(User.username.asc()).all()
 
     if request.method == 'POST':
         channel = (request.form.get('channel') or 'wechat').strip()
         target = (request.form.get('target') or '').strip()
         template_code = (request.form.get('template_code') or 'CONTRACT_EVENT').strip()
         message = (request.form.get('message') or '').strip()
+        event_code = (request.form.get('event_code') or 'OTHER').strip()
+        target_user_id_raw = (request.form.get('target_user_id') or '').strip()
+
+        target_user = None
+        if target_user_id_raw:
+            try:
+                target_user_id = int(target_user_id_raw)
+            except ValueError:
+                target_user_id = None
+            if target_user_id:
+                target_user = User.query.get(target_user_id)
+
+        # 如果选择了系统内用户，但未手动输入 target，则根据通道自动取对应字段
+        if target_user and not target:
+            if channel == 'email':
+                target = (target_user.email or '').strip()
+            elif channel == 'sms':
+                target = (target_user.phone or '').strip()
+            elif channel == 'wechat':
+                target = (target_user.wechat or '').strip()
 
         if not target:
-            flash('请填写接收人联系方式（邮箱 / 手机 / 微信ID 等）')
+            flash('请选择接收用户或填写接收人联系方式（邮箱 / 手机 / 微信ID 等）')
             return render_template(
                 'contracts/notify.html',
                 user=user,
@@ -555,6 +587,9 @@ def notify_contract(contract_id: int):
                 default_template_code=template_code,
                 default_target=target,
                 default_message=message,
+                notification_event_choices=NOTIFICATION_EVENT_CHOICES,
+                default_event_code=event_code,
+                users=users,
             )
 
         # 组织模板参数（后续可以扩展更多字段）
@@ -564,9 +599,11 @@ def notify_contract(contract_id: int):
             "contract_number": contract.contract_number,
             "contract_name": contract.name,
             "message": message,
+            "event_code": event_code,
+            "target_user_id": target_user.id if target_user else None,
         }
 
-        # 通过 DummyNotificationService 发送（目前打印在服务器日志里）
+        # 通过通知服务发送（当前仍为 Dummy 实现，只打印日志）
         notification_service.send(
             channel=channel,
             target=target,
@@ -580,13 +617,15 @@ def notify_contract(contract_id: int):
             contract_id=contract.id,
             object_type=OBJECT_TYPE_CONTRACT,
             object_id=contract.id,
-            action='notify',  # 这里直接用字符串，后面在 logs.py 里加显示
+            action='notify',
             old_data=None,
             new_data={
                 "channel": channel,
                 "target": target,
                 "template_code": template_code,
                 "message": message,
+                "event_code": event_code,
+                "target_user_id": target_user.id if target_user else None,
             },
             request=request,
         )
@@ -603,7 +642,11 @@ def notify_contract(contract_id: int):
         default_template_code='CONTRACT_EVENT',
         default_target='',
         default_message=f'项目 {contract.project_code} - {contract.name} 的进度提醒',
+        notification_event_choices=NOTIFICATION_EVENT_CHOICES,
+        default_event_code='CONTRACT_PROGRESS',
+        users=users,
     )
+
 
 
 
@@ -1068,7 +1111,8 @@ def manage_procurements(contract_id):
 
         # 预留通知目标：
         # 这里先用当前登录用户邮箱作为示例，将来可以改为项目负责人 / 采购专员等
-        notify_target = user.email if user and user.email else None
+        # 通知策略：采购模块不再自动发送通知，统一通过“发送通知”页面手工触发
+        notify_target = None
 
         item = service.create_item(
             contract=contract,
@@ -1076,6 +1120,7 @@ def manage_procurements(contract_id):
             notify_target=notify_target,
             notify_channel="email",
         )
+
 
         # 写一条“创建采购项”的日志
         if item is not None:
