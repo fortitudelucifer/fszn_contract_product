@@ -14,3 +14,13 @@ class Config:
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    # 通知后端：dummy / email （未来可以扩展 sms / wechat）
+    NOTIFICATION_BACKEND = "dummy"
+
+    # == 如果用 email 作为通知渠道，配置 SMTP ==
+    MAIL_SERVER = "smtp.example.com"
+    MAIL_PORT = 587
+    MAIL_USE_TLS = True
+    MAIL_USERNAME = "1284634061@qq.com"
+    MAIL_PASSWORD = "your_password"
+    MAIL_DEFAULT_SENDER = "noreply@example.com"

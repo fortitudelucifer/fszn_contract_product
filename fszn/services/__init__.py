@@ -7,4 +7,12 @@ service 层初始化模块。
 - 方便后续编写单元测试 / 复用逻辑
 """
 
-from .notification_service import NotificationService  # 便于外部引用
+# fszn/services/__init__.py
+
+from .notification_service import (
+    NotificationService,
+    NotificationChannel,
+    DummyNotificationService,
+    get_notification_service,  # 新增
+)
+

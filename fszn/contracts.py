@@ -25,7 +25,7 @@ from .services.procurement_service import ProcurementService
 from .services.production_service import ProductionService
 from .services.acceptance_service import AcceptanceService
 from .services.feedback_service import FeedbackService
-from .services.notification_service import DummyNotificationService
+from .services import get_notification_service
 
 from .operation_log import (
     log_operation,
@@ -112,7 +112,8 @@ ROLE_ALLOWED_TYPES = {
     'default': {'contract', 'tech', 'drawing', 'invoice', 'ticket'},
 }
 
-notification_service = DummyNotificationService()
+notification_service = get_notification_service()
+
 # 手工通知的事件类型列表（仅用于界面展示和日志记录）
 NOTIFICATION_EVENT_CHOICES = [
     ('CONTRACT_PROGRESS', '项目进度更新'),
