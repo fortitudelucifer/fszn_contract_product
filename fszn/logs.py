@@ -29,6 +29,7 @@ ACTION_LABELS: Dict[str, str] = {
     "status_change": "状态变更",
     "upload": "上传",
     "resolve": "标记解决",
+    "notify": "发送通知",
 }
 
 # 字段中文名，用于详情展示

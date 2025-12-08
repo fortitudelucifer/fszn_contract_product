@@ -25,6 +25,7 @@ from .services.procurement_service import ProcurementService
 from .services.production_service import ProductionService
 from .services.acceptance_service import AcceptanceService
 from .services.feedback_service import FeedbackService
+from .notification_service import DummyNotificationService
 
 from .operation_log import (
     log_operation,
@@ -111,6 +112,7 @@ ROLE_ALLOWED_TYPES = {
     'default': {'contract', 'tech', 'drawing', 'invoice', 'ticket'},
 }
 
+notification_service = DummyNotificationService()
 
 def allowed_file(filename: str) -> bool:
     if not filename or '.' not in filename:
@@ -229,6 +231,11 @@ def list_contracts():
     planned_delivery_date_str = (request.args.get('planned_delivery_date') or '').strip()
     status_filter = (request.args.get('status') or '').strip()
 
+    # 状态筛选：支持多选
+    raw_status_filters = request.args.getlist('status')
+    status_filters = [s.strip() for s in raw_status_filters if s.strip()]
+
+
     # 按条件过滤（全部是“包含”匹配）
     if company_name:
         query = query.filter(Company.name.contains(company_name))
@@ -264,16 +271,17 @@ def list_contracts():
         status_text, status_level = get_contract_status(c)
         status_map[c.id] = dict(text=status_text, level=status_level)
 
-    # 如果设置了状态筛选，则在内存中按状态文本过滤
-    if status_filter:
+    # 如果设置了状态筛选，则在内存中按状态文本“多选过滤”
+    if status_filters:
         filtered_contracts = []
         for c in contracts:
             st = status_map.get(c.id)
             if not st:
                 continue
-            if st.get("text") == status_filter:
+            if st.get("text") in status_filters:
                 filtered_contracts.append(c)
         contracts = filtered_contracts
+
 
     # 3）准备“后续任务”数据：每个合同下若干条未完成任务
     contract_ids = [c.id for c in contracts]
@@ -326,7 +334,7 @@ def list_contracts():
         contract_number=contract_number,
         name=name,
         planned_delivery_date=planned_delivery_date_str,
-        status_filter=status_filter,
+        status_filters=status_filters,
     )
 
 
@@ -436,6 +444,167 @@ def new_contract():
         return redirect(url_for('contracts.list_contracts'))
 
     return render_template('contracts/new.html', user=user)
+
+# 编辑项目/合同基础信息
+
+@contracts_bp.route('/<int:contract_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_contract(contract_id: int):
+    """编辑项目/合同基础信息"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+    company = contract.company  # 只读展示客户公司
+
+    if request.method == 'POST':
+        # 记录旧值，用于操作日志
+        old_data = {
+            "project_code": contract.project_code,
+            "contract_number": contract.contract_number,
+            "name": contract.name,
+            "client_manager": contract.client_manager,
+            "client_contact": contract.client_contact,
+            "our_manager": contract.our_manager,
+            "remark": getattr(contract, "remark", None),
+        }
+
+        project_code = (request.form.get('project_code') or '').strip()
+        contract_number = (request.form.get('contract_number') or '').strip()
+        name = (request.form.get('name') or '').strip()
+        client_manager = (request.form.get('client_manager') or '').strip()
+        client_contact = (request.form.get('client_contact') or '').strip()
+        our_manager = (request.form.get('our_manager') or '').strip()
+        remark = (request.form.get('remark') or '').strip() or None
+
+        if not project_code or not contract_number or not name:
+            flash('项目编号、合同编号、合同名称都是必填项')
+            return render_template('contracts/edit.html', user=user, contract=contract, company=company)
+
+        # 如果项目编号修改了，需要检查唯一性
+        if project_code != contract.project_code:
+            exists = Contract.query.filter_by(project_code=project_code).first()
+            if exists and exists.id != contract.id:
+                flash('该项目编号已存在，请更换一个唯一的项目编号')
+                return render_template('contracts/edit.html', user=user, contract=contract, company=company)
+
+        # 写回新值
+        contract.project_code = project_code
+        contract.contract_number = contract_number
+        contract.name = name
+        contract.client_manager = client_manager
+        contract.client_contact = client_contact
+        contract.our_manager = our_manager
+        if hasattr(contract, "remark"):
+            contract.remark = remark
+
+        db.session.commit()
+
+        new_data = {
+            "project_code": contract.project_code,
+            "contract_number": contract.contract_number,
+            "name": contract.name,
+            "client_manager": contract.client_manager,
+            "client_contact": contract.client_contact,
+            "our_manager": contract.our_manager,
+            "remark": getattr(contract, "remark", None),
+        }
+
+        # ✅ 记录操作日志（合同编辑）
+        log_operation(
+            operator=user,
+            contract_id=contract.id,
+            object_type=OBJECT_TYPE_CONTRACT,
+            object_id=contract.id,
+            action=ACTION_UPDATE,
+            old_data=old_data,
+            new_data=new_data,
+            request=request,
+        )
+
+        flash('合同信息已更新')
+        return redirect(url_for('contracts.list_contracts'))
+
+    # GET：展示编辑表单
+    return render_template('contracts/edit.html', user=user, contract=contract, company=company)
+
+# 发送通知
+
+@contracts_bp.route('/<int:contract_id>/notify', methods=['GET', 'POST'])
+@login_required
+def notify_contract(contract_id: int):
+    """针对单个项目/合同发送通知（目前使用 DummyNotificationService 打印日志）。"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+
+    if request.method == 'POST':
+        channel = (request.form.get('channel') or 'wechat').strip()
+        target = (request.form.get('target') or '').strip()
+        template_code = (request.form.get('template_code') or 'CONTRACT_EVENT').strip()
+        message = (request.form.get('message') or '').strip()
+
+        if not target:
+            flash('请填写接收人联系方式（邮箱 / 手机 / 微信ID 等）')
+            return render_template(
+                'contracts/notify.html',
+                user=user,
+                contract=contract,
+                default_channel=channel,
+                default_template_code=template_code,
+                default_target=target,
+                default_message=message,
+            )
+
+        # 组织模板参数（后续可以扩展更多字段）
+        params = {
+            "contract_id": contract.id,
+            "project_code": contract.project_code,
+            "contract_number": contract.contract_number,
+            "contract_name": contract.name,
+            "message": message,
+        }
+
+        # 通过 DummyNotificationService 发送（目前打印在服务器日志里）
+        notification_service.send(
+            channel=channel,
+            target=target,
+            template_code=template_code,
+            params=params,
+        )
+
+        # 写入操作日志，方便追踪谁发过什么通知
+        log_operation(
+            operator=user,
+            contract_id=contract.id,
+            object_type=OBJECT_TYPE_CONTRACT,
+            object_id=contract.id,
+            action='notify',  # 这里直接用字符串，后面在 logs.py 里加显示
+            old_data=None,
+            new_data={
+                "channel": channel,
+                "target": target,
+                "template_code": template_code,
+                "message": message,
+            },
+            request=request,
+        )
+
+        flash('通知已发送（当前为测试模式，仅记录在服务器日志和操作日志中）')
+        return redirect(url_for('contracts.list_contracts'))
+
+    # GET：展示发送通知表单
+    return render_template(
+        'contracts/notify.html',
+        user=user,
+        contract=contract,
+        default_channel='wechat',
+        default_template_code='CONTRACT_EVENT',
+        default_target='',
+        default_message=f'项目 {contract.project_code} - {contract.name} 的进度提醒',
+    )
+
 
 
 @contracts_bp.route('/<int:contract_id>/planned_delivery', methods=['POST'])

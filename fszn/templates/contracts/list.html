@@ -36,17 +36,27 @@
 
     <label style="margin-left: 1em;">
         状态：
-        <select name="status">
-            <option value="">全部</option>
-            {% set statuses_all = ['未启动', '生产中', '验收中', '已验收', '已验收-有未解决问题'] %}
-            {% for st_text in statuses_all %}
+        {% set all_status_choices = [
+        '未启动',
+        '生产中',
+        '验收中',
+        '已验收',
+        '已验收-有未解决问题'
+        ] %}
+        <select name="status" multiple size="4">
+            <option value="">-- 不限 --</option>
+            {% for st_text in all_status_choices %}
             <option value="{{ st_text }}"
-                    {% if status_filter==st_text %}selected{% endif %}>
+                    {% if status_filters and st_text in status_filters %}selected{% endif %}>
                 {{ st_text }}
             </option>
             {% endfor %}
         </select>
+        <span style="font-size: 12px; color: #666;">
+            （按住 Ctrl / Command 可多选）
+        </span>
     </label>
+
 
     <button type="submit" style="margin-left: 1em;">筛选</button>
     <a href="{{ url_for('contracts.list_contracts') }}" style="margin-left: 0.5em;">清空</a>
@@ -251,7 +261,7 @@
                 {% set mech_persons = dept_map.get('机械部') or dept_map.get('机械设计部') or [] %}
                 {% if mech_persons %}
                 {% for p in mech_persons %}
-                {{ p.name }}{% if not loop.last %}、{% endif %}
+                <div>{{ p.name }}</div>
                 {% endfor %}
                 {% else %}
                 -
@@ -263,7 +273,7 @@
                 {% set elec_persons = dept_map.get('电气部') or dept_map.get('电气设计部') or [] %}
                 {% if elec_persons %}
                 {% for p in elec_persons %}
-                {{ p.name }}{% if not loop.last %}、{% endif %}
+                <div>{{ p.name }}</div>
                 {% endfor %}
                 {% else %}
                 -
@@ -275,7 +285,7 @@
                 {% set prog_persons = dept_map.get('程序部') or dept_map.get('软件部') or dept_map.get('程序设计部') or [] %}
                 {% if prog_persons %}
                 {% for p in prog_persons %}
-                {{ p.name }}{% if not loop.last %}、{% endif %}
+                <div>{{ p.name }}</div>
                 {% endfor %}
                 {% else %}
                 -
@@ -287,13 +297,13 @@
                 {% set asm_persons = dept_map.get('装配部') or dept_map.get('调试部') or dept_map.get('装配调试部') or [] %}
                 {% if asm_persons %}
                 {% for p in asm_persons %}
-                {{ p.name }}{% if not loop.last %}、{% endif %}
+                <div>{{ p.name }}</div>
                 {% endfor %}
                 {% else %}
                 -
                 {% endif %}
             </td>
-            {# ========= 客户反馈 / 备注：默认显示前 4 条，可展开全部 ========= #}
+            {# ========= 客户反馈 / 备注：默认显示前 3 条，可展开全部 ========= #}
             <td>
                 {% set fb_sum = feedback_summary_by_contract.get(c.id) %}
                 {% if fb_sum %}
@@ -306,9 +316,9 @@
                 所有反馈已解决，共 {{ fb_sum.total }} 条<br>
                 {% endif %}
 
-                {# 前 4 条默认显示，其余隐藏，点击展开 #}
+                {# 前 3 条默认显示，其余隐藏，点击展开 #}
                 {% for fb in records %}
-                {% set is_extra = loop.index > 4 %}
+                {% set is_extra = loop.index > 3 %}
                 <div class="fb-item {% if is_extra %}fb-extra-{{ c.id }}{% endif %}"
                      style="{% if is_extra %}display: none;{% endif %}">
                     {% if fb.feedback_time %}
@@ -323,7 +333,7 @@
                 </div>
                 {% endfor %}
 
-                {% if total > 4 %}
+                {% if total > 3 %}
                 <div style="margin-top: 0.3em;">
                     <a href="javascript:void(0);" onclick="toggleFeedback('{{ c.id }}', this)">
                         展开全部
@@ -333,7 +343,7 @@
 
                 <div style="margin-top: 0.3em;">
                     <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">
-                        查看 / 编辑反馈
+                        查看 / 编辑反馈备注
                     </a>
                 </div>
                 {% else %}
@@ -342,6 +352,8 @@
             </td>
             <td>
                 <a href="{{ url_for('contracts.contract_overview', contract_id=c.id) }}">总览</a> |
+                <a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">编辑合同</a> |
+                <a href="{{ url_for('contracts.notify_contract', contract_id=c.id) }}">发送通知</a> |
                 <a href="{{ url_for('contracts.manage_sales', contract_id=c.id) }}">销售</a> |
                 <a href="{{ url_for('contracts.manage_leaders', contract_id=c.id) }}">负责人</a> |
                 <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">任务</a> |

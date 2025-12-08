@@ -120,22 +120,4 @@
 <p>当前未配置部门负责人。</p>
 {% endif %}
 
-
-<!-- 销售信息总览 -->
-<h2>销售信息</h2>
-  {% if sales %}
-<p>
-    报价金额：{% if sales.quote_amount is not none %}{{ sales.quote_amount }}{% else %}未填{% endif %}<br>
-    报价日期：{{ sales.quote_date or '未填' }}<br>
-    成交日期：{{ sales.deal_date or '未填' }}<br>
-    销售负责人：{{ sales.sales_person.name if sales.sales_person else '未指定' }}<br>
-    备注：{{ sales.remarks or '' }}
-</p>
-<p>
-    <a href="{{ url_for('contracts.manage_sales', contract_id=contract.id) }}">编辑销售信息</a>
-</p>
-  {% else %}
-<p>尚未填写销售信息。 <a href="{{ url_for('contracts.manage_sales', contract_id=contract.id) }}">立即填写</a></p>
-  {% endif %}
-
 {% endblock %}

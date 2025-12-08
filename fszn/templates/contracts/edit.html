@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>编辑项目 / 合同</h2>
+
+<div class="card" style="padding: 16px; max-width: 720px;">
+    <form method="post" action="{{ url_for('contracts.edit_contract', contract_id=contract.id) }}">
+        <div style="margin-bottom: 8px;">
+            <label>客户公司：</label>
+            <span>{{ company.name if company else '' }}</span>
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label>项目编号：</label>
+            <input type="text" name="project_code"
+                   value="{{ contract.project_code or '' }}"
+                   style="width: 100%;">
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label>合同编号：</label>
+            <input type="text" name="contract_number"
+                   value="{{ contract.contract_number or '' }}"
+                   style="width: 100%;">
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label>合同名称：</label>
+            <input type="text" name="name"
+                   value="{{ contract.name or '' }}"
+                   style="width: 100%;">
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label>客户负责人：</label>
+            <input type="text" name="client_manager"
+                   value="{{ contract.client_manager or '' }}"
+                   style="width: 100%;">
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label>联系方式：</label>
+            <input type="text" name="client_contact"
+                   value="{{ contract.client_contact or '' }}"
+                   style="width: 100%;">
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label>我方负责人：</label>
+            <input type="text" name="our_manager"
+                   value="{{ contract.our_manager or '' }}"
+                   style="width: 100%;">
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label>合同备注：</label>
+            <textarea name="remark" rows="3" style="width: 100%;">{{ contract.remark or '' }}</textarea>
+        </div>
+
+        <div style="margin-top: 12px;">
+            <button type="submit">保存</button>
+            <a href="{{ url_for('contracts.list_contracts') }}" style="margin-left: 8px;">返回列表</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
