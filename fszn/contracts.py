@@ -25,7 +25,7 @@ from .services.procurement_service import ProcurementService
 from .services.production_service import ProductionService
 from .services.acceptance_service import AcceptanceService
 from .services.feedback_service import FeedbackService
-from .notification_service import DummyNotificationService
+from .services.notification_service import DummyNotificationService
 
 from .operation_log import (
     log_operation,
@@ -1433,79 +1433,6 @@ def contract_overview(contract_id):
     )
 
 
-# # 付款管理
-# @contracts_bp.route('/<int:contract_id>/payments', methods=['GET', 'POST'])
-# @login_required
-# def manage_payments(contract_id):
-#     """管理某个项目的客户付款记录（已下线）"""
-#     user_id = session.get('user_id')
-#     user = User.query.get(user_id) if user_id else None
-
-#     contract = Contract.query.get_or_404(contract_id)
-
-#     # 财务模块已从系统中下线，这里只做友好提示并跳回项目总览
-#     flash('财务模块已下线，如需处理付款请使用外部财务系统。', 'info')
-#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
-
-# # 删除付款记录（已下线）
-
-# @contracts_bp.route('/<int:contract_id>/payments/<int:pay_id>/delete', methods=['POST'])
-# @login_required
-# def delete_payment(contract_id, pay_id):
-#     """删除付款记录（功能已下线）"""
-#     contract = Contract.query.get_or_404(contract_id)
-#     flash('财务模块已下线，不能在系统内删除付款记录。', 'info')
-#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
-
-
-# # 发票管理
-# @contracts_bp.route('/<int:contract_id>/invoices', methods=['GET', 'POST'])
-# @login_required
-# def manage_invoices(contract_id):
-#     """管理某个项目的开票记录（已下线）"""
-#     user_id = session.get('user_id')
-#     user = User.query.get(user_id) if user_id else None
-
-#     contract = Contract.query.get_or_404(contract_id)
-
-#     flash('财务模块已下线，如需处理开票请使用外部财务系统。', 'info')
-#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
-
-
-# # 删除开票记录（已下线）
-# @contracts_bp.route('/<int:contract_id>/invoices/<int:inv_id>/delete', methods=['POST'])
-# @login_required
-# def delete_invoice(contract_id, inv_id):
-#     """删除开票记录（功能已下线）"""
-#     contract = Contract.query.get_or_404(contract_id)
-#     flash('财务模块已下线，不能在系统内删除开票记录。', 'info')
-#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
-
-
-# # 退款管理
-# @contracts_bp.route('/<int:contract_id>/refunds', methods=['GET', 'POST'])
-# @login_required
-# def manage_refunds(contract_id):
-#     """管理某个项目的退款记录（已下线）"""
-#     user_id = session.get('user_id')
-#     user = User.query.get(user_id) if user_id else None
-
-#     contract = Contract.query.get_or_404(contract_id)
-
-#     flash('财务模块已下线，如需处理退款请使用外部财务系统。', 'info')
-#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
-
-
-
-# @contracts_bp.route('/<int:contract_id>/refunds/<int:ref_id>/delete', methods=['POST'])
-# @login_required
-# def delete_refund(contract_id, ref_id):
-#     """删除退款记录（功能已下线）"""
-#     contract = Contract.query.get_or_404(contract_id)
-#     flash('财务模块已下线，不能在系统内删除退款记录。', 'info')
-#     return redirect(url_for('contracts.contract_overview', contract_id=contract.id))
-
-
 # 客户反馈
 @contracts_bp.route('/<int:contract_id>/feedbacks', methods=['GET', 'POST'])
 @login_required
@@ -1671,51 +1598,6 @@ def feedbacks_overview():
     companies = Company.query.order_by(Company.name.asc()).all()
     persons = Person.query.order_by(Person.name.asc()).all()
 
-    # # ---- CSV 导出 ----
-    # export = request.args.get('export')
-    # if export == 'csv':
-    #     sio = StringIO()
-    #     writer = csv.writer(sio)
-
-    #     # 表头
-    #     writer.writerow([
-    #         '客户公司',
-    #         '项目编号',
-    #         '合同编号',
-    #         '合同名称',
-    #         '反馈时间',
-    #         '反馈内容',
-    #         '处理工程师',
-    #         '处理结果',
-    #         '完成时间',
-    #         '是否已解决',
-    #     ])
-
-    #     for fb in feedbacks:
-    #         contract = fb.contract
-    #         company_name = contract.company.name if contract and contract.company else ''
-    #         handler_name = fb.handler.name if fb.handler else ''
-
-    #         writer.writerow([
-    #             company_name,
-    #             contract.project_code if contract else '',
-    #             contract.contract_number if contract else '',
-    #             contract.name if contract else '',
-    #             fb.feedback_time.strftime('%Y-%m-%d %H:%M') if fb.feedback_time else '',
-    #             (fb.content or '').replace('\r', ' ').replace('\n', ' '),
-    #             handler_name,
-    #             (fb.result or '').replace('\r', ' ').replace('\n', ' '),
-    #             fb.completion_time.strftime('%Y-%m-%d %H:%M') if fb.completion_time else '',
-    #             '是' if fb.is_resolved else '否',
-    #         ])
-
-    #     csv_data = sio.getvalue()
-    #     # 带 BOM，Excel 打开不会乱码
-    #     response = make_response(csv_data.encode('utf-8-sig'))
-    #     filename = f"feedbacks_overview_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    #     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-    #     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
-    #     return response
 
     # 普通页面渲染
     return render_template(
