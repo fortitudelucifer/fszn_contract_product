@@ -38,6 +38,7 @@ FIELD_LABELS: Dict[str, str] = {
     "quantity": "数量",
     "unit": "单位",
     "expected_date": "期望日期",
+    "planned_delivery_date": "计划交付日期（项目）",
     "content": "内容",
     "handler_id": "处理人 ID",
     "result": "处理结果",
@@ -110,7 +111,7 @@ def _build_detail_display(log: OperationLog) -> str:
         for k, v in old.items():
             pieces.append(f"{_label(k)}：{_fmt_value(v)}")
 
-    return "； ".join(pieces)
+    return "\n ".join(pieces)
 
 
 def _enrich_logs(logs):

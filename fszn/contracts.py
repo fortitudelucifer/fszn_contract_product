@@ -17,7 +17,7 @@ from .auth import login_required, staff_required
 from .models import (
     Contract, Company, User,
     Department, Person, ProjectDepartmentLeader,
-    Task, ProcurementItem, Acceptance, Payment, Invoice, Refund, Feedback,
+    Task, ProcurementItem, Acceptance, Feedback,
     SalesInfo, ProjectFile
 )
 
@@ -137,13 +137,25 @@ def sanitize_part(text: str) -> str:
     return text
 
 
+# 文件类型在文件名中的中文展示
+FILE_TYPE_NAME_MAP = {
+    'contract': '合同',
+    'tech': '技术文档',
+    'drawing': '图纸',
+    'invoice': '其它',  # 现在前端下拉里“其它”用的就是 invoice
+}
+
+
 def generate_file_name(contract: Contract, file_type: str, version: str, author: str, original_filename: str) -> str:
     """按照约定规则生成文件名：
-    客户公司_项目编号_合同编号_合同名称_上传日期_文件类型_版本号_作者.扩展名
+    客户公司_项目编号_合同编号_合同名称_上传日期_文件类型_文件原始名_版本号_作者.扩展名
     """
+    # 拆出扩展名
     if '.' in original_filename:
-        ext = '.' + original_filename.rsplit('.', 1)[1].lower()
+        name_without_ext, ext_raw = original_filename.rsplit('.', 1)
+        ext = '.' + ext_raw.lower()
     else:
+        name_without_ext = original_filename
         ext = ''
 
     company_name = sanitize_part(contract.company.name if contract.company else '')
@@ -151,7 +163,9 @@ def generate_file_name(contract: Contract, file_type: str, version: str, author:
     contract_number = sanitize_part(contract.contract_number or '')
     contract_name = sanitize_part(contract.name or '')
     today_str = datetime.utcnow().strftime('%Y%m%d')
-    file_type_part = sanitize_part(file_type)
+    file_type_label = FILE_TYPE_NAME_MAP.get(file_type, file_type)
+    file_type_part = sanitize_part(file_type_label)
+    original_name_part = sanitize_part(name_without_ext or 'NoFilename')
     version_part = sanitize_part(version or 'V1')
     author_part = sanitize_part(author or 'unknown')
 
@@ -162,6 +176,7 @@ def generate_file_name(contract: Contract, file_type: str, version: str, author:
         contract_name or 'NoName',
         today_str,
         file_type_part,
+        original_name_part,
         version_part,
         author_part,
     ]
@@ -203,7 +218,7 @@ def list_contracts():
     if user_id:
         user = User.query.get(user_id)
 
-        # 基础查询：后面在上面叠加筛选条件
+    # 基础查询：后面在上面叠加筛选条件
     query = Contract.query.join(Company)
 
     # 读取筛选条件（GET 参数）
@@ -211,7 +226,7 @@ def list_contracts():
     project_code = (request.args.get('project_code') or '').strip()
     contract_number = (request.args.get('contract_number') or '').strip()
     name = (request.args.get('name') or '').strip()
-    our_manager = (request.args.get('our_manager') or '').strip()
+    planned_delivery_date_str = (request.args.get('planned_delivery_date') or '').strip()
     status_filter = (request.args.get('status') or '').strip()
 
     # 按条件过滤（全部是“包含”匹配）
@@ -223,16 +238,16 @@ def list_contracts():
         query = query.filter(Contract.contract_number.contains(contract_number))
     if name:
         query = query.filter(Contract.name.contains(name))
-    if our_manager:
-        query = query.filter(Contract.our_manager.contains(our_manager))
+    if planned_delivery_date_str:
+        planned_delivery_date = parse_date(planned_delivery_date_str)
+        if planned_delivery_date:
+            query = query.filter(Contract.planned_delivery_date == planned_delivery_date)
 
     # 按创建时间倒序，最近的项目在前
     contracts = query.order_by(Contract.created_at.desc()).all()
 
-
     # 1）构造：每个合同的 “部门 -> [负责人列表]”
     leaders_by_contract = {}
-
     for c in contracts:
         dept_map = {}
         # 这里用 department_id / person_id 排序，遵守“用 id 控制顺序”的原则
@@ -260,20 +275,90 @@ def list_contracts():
                 filtered_contracts.append(c)
         contracts = filtered_contracts
 
+    # 3）准备“后续任务”数据：每个合同下若干条未完成任务
+    contract_ids = [c.id for c in contracts]
+    next_tasks_by_contract: dict[int, list[Task]] = {}
+    if contract_ids:
+        all_tasks = (
+            Task.query
+            .filter(Task.contract_id.in_(contract_ids))
+            .order_by(Task.start_date.asc(), Task.id.asc())
+            .all()
+        )
+        for t in all_tasks:
+            # 已完成 / 已暂停的就不算“后续任务”
+            if t.status in ("已完成", "已暂停"):
+                continue
+            next_tasks_by_contract.setdefault(t.contract_id, []).append(t)
+
+    # 4）准备“客户反馈摘要”：总数 / 未解决数 / 最新一条内容
+        feedback_summary_by_contract: dict[int, dict] = {}
+    if contract_ids:
+        feedbacks = (
+            Feedback.query
+            .filter(Feedback.contract_id.in_(contract_ids))
+            .order_by(Feedback.feedback_time.desc(), Feedback.id.desc())
+            .all()
+        )
+        for fb in feedbacks:
+            cid = fb.contract_id
+            summary = feedback_summary_by_contract.setdefault(
+                cid,
+                {"total": 0, "unresolved": 0, "records": []},
+            )
+            summary["total"] += 1
+            if not fb.is_resolved:
+                summary["unresolved"] += 1
+            summary["records"].append(fb)
+
+
     return render_template(
         'contracts/list.html',
         user=user,
         contracts=contracts,
         leaders_by_contract=leaders_by_contract,
         statuses=status_map,
+        next_tasks_by_contract=next_tasks_by_contract,
+        feedback_summary_by_contract=feedback_summary_by_contract,
         # 把当前的筛选条件传回模板，便于回显
         company=company_name,
         project_code=project_code,
         contract_number=contract_number,
         name=name,
-        our_manager=our_manager,
+        planned_delivery_date=planned_delivery_date_str,
         status_filter=status_filter,
     )
+
+
+
+@contracts_bp.route('/<int:contract_id>/status_note', methods=['POST'])
+@login_required
+def set_status_note(contract_id: int):
+    """在项目/合同列表页中，编辑合同的手工状态描述"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+
+    old_note = contract.status_note
+    note = (request.form.get('status_note') or '').strip() or None
+
+    contract.status_note = note
+    db.session.commit()
+
+    log_operation(
+        operator=user,
+        contract_id=contract.id,
+        object_type=OBJECT_TYPE_CONTRACT,
+        object_id=contract.id,
+        action=ACTION_UPDATE,
+        old_data={"status_note": old_note},
+        new_data={"status_note": note},
+        request=request,
+    )
+
+    flash('当前状态已更新')
+    return redirect(url_for('contracts.list_contracts'))
 
 
 # 新建项目/合同
@@ -295,6 +380,8 @@ def new_contract():
         client_manager = (request.form.get('client_manager') or '').strip()
         client_contact = (request.form.get('client_contact') or '').strip()
         our_manager = (request.form.get('our_manager') or '').strip()
+        planned_delivery_date_str = (request.form.get('planned_delivery_date') or '').strip()
+        planned_delivery_date = parse_date(planned_delivery_date_str)
 
         if not company_name or not project_code or not contract_number or not name:
             flash('客户公司名称、项目编号、合同编号、合同名称都是必填项')
@@ -321,16 +408,76 @@ def new_contract():
             client_manager=client_manager,
             client_contact=client_contact,
             our_manager=our_manager,
+            planned_delivery_date=planned_delivery_date,
             created_by_id=user_id,
         )
 
         db.session.add(contract)
         db.session.commit()
 
+        # ★ 新增：记录一条合同创建的操作日志
+        log_operation(
+            operator=user,
+            contract_id=contract.id,
+            object_type=OBJECT_TYPE_CONTRACT,
+            object_id=contract.id,
+            action=ACTION_CREATE,
+            new_data={
+                "project_code": contract.project_code,
+                "contract_number": contract.contract_number,
+                "name": contract.name,
+                "planned_delivery_date": contract.planned_delivery_date.isoformat()
+                    if contract.planned_delivery_date else None,
+            },
+            request=request,
+        )
+
         flash('项目/合同已创建')
         return redirect(url_for('contracts.list_contracts'))
 
     return render_template('contracts/new.html', user=user)
+
+
+@contracts_bp.route('/<int:contract_id>/planned_delivery', methods=['POST'])
+@login_required
+def set_planned_delivery(contract_id: int):
+    """在项目/合同列表页中，更新单个合同的计划交付日期"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+
+    # 旧值用于写入操作日志
+    old_date = contract.planned_delivery_date
+
+    # 从表单获取日期字符串
+    date_str = (request.form.get('planned_delivery_date') or '').strip()
+    # 复用你已有的 parse_date 工具函数
+    new_date = parse_date(date_str)
+
+    contract.planned_delivery_date = new_date
+    db.session.commit()
+
+    # 写一条操作日志
+    log_operation(
+        operator=user,
+        contract_id=contract.id,
+        object_type=OBJECT_TYPE_CONTRACT,
+        object_id=contract.id,
+        action=ACTION_UPDATE,
+        old_data={
+            "planned_delivery_date": old_date.isoformat() if old_date else None,
+        },
+        new_data={
+            "planned_delivery_date": new_date.isoformat() if new_date else None,
+        },
+        request=request,
+    )
+
+    flash('计划交付日期已更新')
+    # 从列表页来的，保存后也回列表页
+    return redirect(url_for('contracts.list_contracts'))
+
 
 
 @contracts_bp.route('/<int:contract_id>/leaders', methods=['GET', 'POST'])
@@ -660,9 +807,8 @@ def delete_task(contract_id, task_id):
 @login_required
 def change_task_status(contract_id, task_id):
     """变更单个任务的状态（开始 / 待质检 / 完成 / 暂停）。"""
-
     user_id = session.get('user_id')
-    user = User.query.get(user_id) if user_id else None  # 目前暂未使用，可用于权限控制
+    user = User.query.get(user_id) if user_id else None
 
     contract = Contract.query.get_or_404(contract_id)
     task = Task.query.filter_by(id=task_id, contract_id=contract.id).first_or_404()
@@ -670,28 +816,29 @@ def change_task_status(contract_id, task_id):
     action = (request.form.get('action') or '').strip()
     service = ProductionService(db)
 
-    # 记录旧状态
     old_status = task.status
+    msg = None
 
     if action == 'start':
         service.start_task(task)
-        flash('任务已开始')
+        msg = '任务已开始'
     elif action == 'wait_qc':
         service.mark_waiting_qc(task)
-        flash('任务已标记为待质检')
+        msg = '任务已标记为待质检'
     elif action == 'complete':
         service.complete_task(task)
-        flash('任务已完成')
+        msg = '任务已完成'
     elif action == 'pause':
         service.pause_task(task)
-        flash('任务已暂停')
+        msg = '任务已暂停'
     else:
         flash('无效的任务状态操作', 'error')
-
+        return redirect(url_for('contracts.manage_tasks', contract_id=contract.id))
 
     # 统一写一条状态变更日志
     log_operation(
         operator=user,
+        contract_id=contract.id,  # 建议这里也带上合同维度
         object_type=OBJECT_TYPE_TASK,
         object_id=task.id,
         action=ACTION_STATUS_CHANGE,
@@ -700,7 +847,8 @@ def change_task_status(contract_id, task_id):
         request=request,
     )
 
-    flash(msg)
+    if msg:
+        flash(msg)
 
     return redirect(url_for('contracts.manage_tasks', contract_id=contract.id))
 
@@ -764,6 +912,7 @@ def manage_procurements(contract_id):
         if item is not None:
             log_operation(
                 operator=user,
+                contract_id=contract.id,
                 object_type=OBJECT_TYPE_PROCUREMENT,
                 object_id=item.id,
                 action=ACTION_CREATE,
@@ -817,6 +966,7 @@ def delete_procurement(contract_id, item_id):
     # 删除之后写一条日志
     log_operation(
         operator=user,
+        contract_id=contract.id,
         object_type=OBJECT_TYPE_PROCUREMENT,
         object_id=item.id,
         action=ACTION_DELETE,
@@ -1233,6 +1383,7 @@ def manage_feedbacks(contract_id):
         # 写一条“创建反馈”的日志
         log_operation(
             operator=user,
+            contract_id=contract.id,
             object_type=OBJECT_TYPE_FEEDBACK,
             object_id=fb.id,
             action=ACTION_CREATE,
@@ -1286,6 +1437,7 @@ def delete_feedback(contract_id, feedback_id):
 
     log_operation(
         operator=user,
+        contract_id=contract.id,
         object_type=OBJECT_TYPE_FEEDBACK,
         object_id=fb.id,
         action=ACTION_DELETE,
@@ -1432,6 +1584,7 @@ def resolve_feedback(contract_id, feedback_id):
 
     log_operation(
         operator=user,
+        contract_id=contract.id,
         object_type=OBJECT_TYPE_FEEDBACK,
         object_id=fb.id,
         action=ACTION_RESOLVE,

@@ -28,13 +28,14 @@ ACTION_RESOLVE = "resolve"
 
 def log_operation(
     *,
-    operator: Optional[User],
+    operator: Optional[User] = None,
     object_type: str,
     object_id: int,
     action: str,
     old_data: Optional[Dict[str, Any]] = None,
     new_data: Optional[Dict[str, Any]] = None,
     request: Optional[Request] = None,
+    contract_id: Optional[int] = None,
 ) -> OperationLog:
     """
     统一操作日志记录入口。
@@ -46,12 +47,8 @@ def log_operation(
     :param old_data: 变更前的数据快照（字典）
     :param new_data: 变更后的数据快照（字典）
     :param request: Flask 的 request 对象，用于获取 IP（可选）
+    :param contract_id: 所属合同 ID（用于合同维度查看日志，可选）
     """
-
-    # 如果直接传了 Contract 对象，就从中取 id
-    if contract is not None and contract_id is None:
-        contract_id = contract.id
-
     ip_address = None
     if request is not None:
         ip_address = request.remote_addr
@@ -73,6 +70,5 @@ def log_operation(
     )
 
     db.session.add(log)
-    # 这里的 commit 会同时提交当前 session 中的其它改动（任务状态、反馈等）
     db.session.commit()
     return log

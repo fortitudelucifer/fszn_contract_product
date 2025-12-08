@@ -47,6 +47,9 @@ class Contract(db.Model):
     # 合同名称
     name = db.Column(db.String(200), nullable=False)
 
+    # ★ 新增：计划交付日期
+    planned_delivery_date = db.Column(db.Date, nullable=True) 
+
     # 客户公司负责人 / 联系方式 / 我方负责人
     client_manager = db.Column(db.String(100))
     client_contact = db.Column(db.String(200))
@@ -54,6 +57,8 @@ class Contract(db.Model):
 
     # 简单状态（后面可以细化）
     status = db.Column(db.String(50), default='新建')
+    status_note = db.Column(db.String(500), nullable=True)  # 手工状态备注
+
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -160,51 +165,6 @@ class Acceptance(db.Model):
     person = db.relationship('Person', backref='acceptances')
 
 
-class Payment(db.Model):
-    __tablename__ = 'payments'
-
-    id = db.Column(db.Integer, primary_key=True)
-
-    contract_id = db.Column(db.Integer, db.ForeignKey('contracts.id'), nullable=False)
-
-    amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)  # 付款金额
-    date = db.Column(db.Date, nullable=False)                         # 付款日期
-    method = db.Column(db.String(50))                                 # 付款方式
-    remarks = db.Column(db.String(500))                               # 备注
-
-    contract = db.relationship('Contract', backref='payments')
-
-
-class Invoice(db.Model):
-    __tablename__ = 'invoices'
-
-    id = db.Column(db.Integer, primary_key=True)
-
-    contract_id = db.Column(db.Integer, db.ForeignKey('contracts.id'), nullable=False)
-
-    invoice_number = db.Column(db.String(100), unique=True, nullable=True)  # 发票编号（可选唯一）
-    amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)       # 开票金额
-    date = db.Column(db.Date, nullable=False)                              # 开票日期
-    remarks = db.Column(db.String(500))                                    # 备注
-
-    contract = db.relationship('Contract', backref='invoices')
-
-
-class Refund(db.Model):
-    __tablename__ = 'refunds'
-
-    id = db.Column(db.Integer, primary_key=True)
-
-    contract_id = db.Column(db.Integer, db.ForeignKey('contracts.id'), nullable=False)
-
-    amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)   # 退款金额
-    date = db.Column(db.Date, nullable=False)                          # 退款日期
-    reason = db.Column(db.String(200))                                 # 退款原因
-    remarks = db.Column(db.String(500))                                # 备注
-
-    contract = db.relationship('Contract', backref='refunds')
-
-
 class Feedback(db.Model):
     __tablename__ = 'feedbacks'
 
@@ -301,6 +261,8 @@ class OperationLog(db.Model):
 
     # 执行操作的用户（可以为空，例如系统定时任务）
     operator_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    contract_id = db.Column(db.Integer, db.ForeignKey('contracts.id'), nullable=True)
 
     # 对象类型：task / procurement / acceptance / feedback / contract / file
     object_type = db.Column(db.String(50), nullable=False)

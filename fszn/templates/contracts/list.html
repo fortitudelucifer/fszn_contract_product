@@ -28,9 +28,11 @@
     </label>
 
     <label style="margin-left: 1em;">
-        我方负责人：
-        <input type="text" name="our_manager" value="{{ our_manager or '' }}">
+        计划交付日期：
+        <input type="date" name="planned_delivery_date"
+               value="{{ planned_delivery_date or '' }}">
     </label>
+
 
     <label style="margin-left: 1em;">
         状态：
@@ -50,22 +52,118 @@
     <a href="{{ url_for('contracts.list_contracts') }}" style="margin-left: 0.5em;">清空</a>
 </form>
 
-  {% if contracts %}
-<table border="1" cellpadding="4" cellspacing="0">
+{% if contracts %}
+
+<style>
+    /* 整个列表表格的基础样式 */
+    .contract-list-table {
+        width: 100%;
+        table-layout: fixed;
+        font-size: 15px; /* 字体变大一点 */
+        border-collapse: collapse;
+    }
+
+        /* 单元格统一样式：靠上、可换行 */
+        .contract-list-table th,
+        .contract-list-table td {
+            padding: 4px;
+            vertical-align: top;
+            word-break: break-all; /* 中英文都可以换行 */
+            white-space: normal;
+        }
+
+        /* 表头居中 */
+        .contract-list-table th {
+            text-align: center;
+        }
+
+        /* 各列宽度（百分比，总和 ~100） */
+        .contract-list-table .col-id {
+            width: 2%;         /* 4*/  /*id*/
+        }
+
+        .contract-list-table .col-company {
+            width: 13%;           /*13*/      /*客户公司*/
+        }
+
+        .contract-list-table .col-project {
+            width: 5%;           /* 7*/       /* 项目编号*/
+        }
+
+        .contract-list-table .col-contract-no {
+            width: 4%;               /*7*/          /*合同编号*/
+        }
+
+        .contract-list-table .col-name {
+            width: 13%;              /* 13*/             /*合同名称*/
+        }
+
+        .contract-list-table .col-plan-date {
+            width: 7%;              /*9*/             /*计划交付日期*/
+        }
+
+        .contract-list-table .col-client {
+            width: 4%;             /*7*/           /*客户负责人*/
+        }
+
+        .contract-list-table .col-status {
+            width: 10%;                /* 10*/       /*状态*/
+        }
+
+        .contract-list-table .col-tasks {
+            width: 12%;             /* 9*/        /*后续任务*/
+        }
+
+        .contract-list-table .col-mech,
+        .contract-list-table .col-elec,
+        .contract-list-table .col-prog,
+        .contract-list-table .col-asm {
+            width: 5%;             /* 4*/
+        }
+
+        .contract-list-table .col-feedback {
+            width: 15%;                /*13*/
+        }
+
+        .contract-list-table .col-ops {
+            width: 13%;                /* 10*/
+        }
+
+    /* 状态备注 textarea 样式 */
+    .status-note {
+        width: 95%;
+        min-height: 1.8em;
+        resize: none; /* 禁止手工拖动，只靠自动增长 */
+        overflow: hidden;
+        font-size: 14px;
+    }
+
+    /* 客户反馈每条之间留一点空隙，但不要太大 */
+    .fb-item {
+        margin-top: 0.3em;
+    }
+</style>
+
+
+<table class="contract-list-table" border="1" cellspacing="0" cellpadding="4">
+
     <thead>
         <tr>
-            <th>ID</th>
-            <th>客户公司</th>
-            <th>项目编号</th>
-            <th>合同编号</th>
-            <th>合同名称</th>
-            <th>客户负责人</th>
-            <th>客户联系方式</th>
-            <th>我方负责人</th>
-            <th>状态</th>
-            <th>部门及负责人</th>
-            <th>销售概要</th>
-            <th>操作</th>
+            <th class="col-id">ID</th>
+            <th class="col-company">客户公司</th>
+            <th class="col-project">项目编号</th>
+            <th class="col-contract-no">合同编号</th>
+            <th class="col-name">合同名称</th>
+            <th class="col-plan-date">计划交付日期</th>
+            <th class="col-client">客户负责人</th>
+            <th class="col-status">状态</th>
+            <th class="col-tasks">后续任务</th>
+            <th class="col-mech">机械设计</th>
+            <th class="col-elec">电气设计</th>
+            <th class="col-prog">程序设计</th>
+            <th class="col-asm">装配调试</th>
+            <th class="col-feedback">客户反馈/备注</th>
+            <th class="col-ops">操作</th>
         </tr>
     </thead>
     <tbody>
@@ -80,11 +178,21 @@
                     {{ c.name }}
                 </a>
             </td>
-            <td>{{ c.client_manager }}</td>
-            <td>{{ c.client_contact }}</td>
-            <td>{{ c.our_manager }}</td>
-            {# ========= 彩色状态展示 ========= #}
             <td>
+                <form method="post"
+                      action="{{ url_for('contracts.set_planned_delivery', contract_id=c.id) }}">
+                    <input type="date"
+                           name="planned_delivery_date"
+                           value="{{ c.planned_delivery_date.strftime('%Y-%m-%d') if c.planned_delivery_date else '' }}"
+                           style="width: 100%;">
+                    <button type="submit">保存</button>
+                </form>
+            </td>
+            <td>{{ c.client_manager }}</td>
+            {# ========= 彩色状态展示 =======
+            == #}
+            <td>
+                {# 自动计算的状态（彩色显示） #}
                 {% set st = statuses.get(c.id) %}
                 {% if st %}
                 {% if st.level == 'green' %}
@@ -101,34 +209,135 @@
                 {% else %}
                 -
                 {% endif %}
+
+                {# 手工编辑的“当前状态”备注 #}
+                <form method="post"
+                      action="{{ url_for('contracts.set_status_note', contract_id=c.id) }}"
+                      style="margin-top: 0.3em;">
+                    <textarea name="status_note"
+                              class="status-note"
+                              oninput="autoGrow(this)">{{ c.status_note or '' }}</textarea>
+                    <button type="submit">保存</button>
+                </form>
+
             </td>
 
-            {# ========= 部门及负责人 ========= #}
+            {# ========= 后续任务摘要 ========= #}
             <td>
-                {% set dept_map = leaders_by_contract.get(c.id, {}) %}
-                {% if dept_map %}
-                {% for dept, persons in dept_map.items() %}
+                {% set tasks = next_tasks_by_contract.get(c.id) or [] %}
+                {% if tasks %}
+                {% for t in tasks[:3] %}
                 <div>
-                    <strong>{{ dept }}：</strong>
-                    {% for p in persons %}
-                    {{ p.name }}{% if not loop.last %}，{% endif %}
-                    {% endfor %}
+                    {% if t.start_date %}
+                    {{ t.start_date.strftime('%m-%d') }}：
+                    {% endif %}
+                    {{ t.title }}
                 </div>
                 {% endfor %}
+                {% if tasks|length > 3 %}
+                <div>
+                    <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">更多…</a>
+                </div>
+                {% endif %}
                 {% else %}
-                暂无
+                <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">添加任务</a>
+                {% endif %}
+            </td>
+            {# ========= 部门负责人：固定四列 ========= #}
+            {% set dept_map = leaders_by_contract.get(c.id, {}) %}
+
+            <td>
+                {# 机械设计 #}
+                {% set mech_persons = dept_map.get('机械部') or dept_map.get('机械设计部') or [] %}
+                {% if mech_persons %}
+                {% for p in mech_persons %}
+                {{ p.name }}{% if not loop.last %}、{% endif %}
+                {% endfor %}
+                {% else %}
+                -
                 {% endif %}
             </td>
 
-            {# 销售信息概要 #}
             <td>
-                {% if c.sales_info %}
-                报价：{{ c.sales_info.quote_amount or '未填' }}<br>
-                报价日：{{ c.sales_info.quote_date or '未填' }}<br>
-                成交日：{{ c.sales_info.deal_date or '未填' }}<br>
-                销售：{{ c.sales_info.sales_person.name if c.sales_info.sales_person else '未指定' }}
+                {# 电气设计 #}
+                {% set elec_persons = dept_map.get('电气部') or dept_map.get('电气设计部') or [] %}
+                {% if elec_persons %}
+                {% for p in elec_persons %}
+                {{ p.name }}{% if not loop.last %}、{% endif %}
+                {% endfor %}
                 {% else %}
-                暂无
+                -
+                {% endif %}
+            </td>
+
+            <td>
+                {# 程序设计 #}
+                {% set prog_persons = dept_map.get('程序部') or dept_map.get('软件部') or dept_map.get('程序设计部') or [] %}
+                {% if prog_persons %}
+                {% for p in prog_persons %}
+                {{ p.name }}{% if not loop.last %}、{% endif %}
+                {% endfor %}
+                {% else %}
+                -
+                {% endif %}
+            </td>
+
+            <td>
+                {# 装配调试 #}
+                {% set asm_persons = dept_map.get('装配部') or dept_map.get('调试部') or dept_map.get('装配调试部') or [] %}
+                {% if asm_persons %}
+                {% for p in asm_persons %}
+                {{ p.name }}{% if not loop.last %}、{% endif %}
+                {% endfor %}
+                {% else %}
+                -
+                {% endif %}
+            </td>
+            {# ========= 客户反馈 / 备注：默认显示前 4 条，可展开全部 ========= #}
+            <td>
+                {% set fb_sum = feedback_summary_by_contract.get(c.id) %}
+                {% if fb_sum %}
+                {% set records = fb_sum.records %}
+                {% set total = records|length %}
+
+                {% if fb_sum.unresolved > 0 %}
+                未解决 {{ fb_sum.unresolved }} 条，共 {{ fb_sum.total }} 条<br>
+                {% else %}
+                所有反馈已解决，共 {{ fb_sum.total }} 条<br>
+                {% endif %}
+
+                {# 前 4 条默认显示，其余隐藏，点击展开 #}
+                {% for fb in records %}
+                {% set is_extra = loop.index > 4 %}
+                <div class="fb-item {% if is_extra %}fb-extra-{{ c.id }}{% endif %}"
+                     style="{% if is_extra %}display: none;{% endif %}">
+                    {% if fb.feedback_time %}
+                    {{ fb.feedback_time.strftime('%m-%d') }}：
+                    {% endif %}
+                    {{ fb.content }}
+                    {% if not fb.is_resolved %}
+                    <span style="color:red;">（未解决）</span>
+                    {% else %}
+                    <span style="color:green;">（已解决）</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                {% if total > 4 %}
+                <div style="margin-top: 0.3em;">
+                    <a href="javascript:void(0);" onclick="toggleFeedback('{{ c.id }}', this)">
+                        展开全部
+                    </a>
+                </div>
+                {% endif %}
+
+                <div style="margin-top: 0.3em;">
+                    <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">
+                        查看 / 编辑反馈
+                    </a>
+                </div>
+                {% else %}
+                <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">添加反馈</a>
                 {% endif %}
             </td>
             <td>
@@ -138,7 +347,7 @@
                 <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">任务</a> |
                 <a href="{{ url_for('contracts.manage_procurements', contract_id=c.id) }}">采购</a> |
                 <a href="{{ url_for('contracts.manage_acceptances', contract_id=c.id) }}">验收</a> |
-                <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">客户反馈</a> |
+                <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">客户反馈/备注</a> |
                 <a href="{{ url_for('contracts.manage_files', contract_id=c.id) }}">文件</a>
             </td>
         </tr>
@@ -146,7 +355,44 @@
     </tbody>
 
 </table>
-  {% else %}
+    {% else %}
 <p>当前还没有项目/合同。</p>
-  {% endif %}
-{% endblock %}
+    {% endif %}
+<script>
+    function toggleFeedback(contractId, link) {
+        var selector = '.fb-extra-' + contractId;
+        var items = document.querySelectorAll(selector);
+        if (!items.length) {
+            return;
+        }
+
+        var anyHidden = false;
+        items.forEach(function (el) {
+            if (el.style.display === 'none' || el.style.display === '') {
+                anyHidden = true;
+            }
+        });
+
+        items.forEach(function (el) {
+            el.style.display = anyHidden ? 'block' : 'none';
+        });
+
+        link.textContent = anyHidden ? '收起' : '展开全部';
+    }
+
+    // 自动根据内容调整 textarea 高度
+    function autoGrow(el) {
+        el.style.height = 'auto';
+        el.style.height = el.scrollHeight + 'px';
+    }
+
+    // 页面加载时，把已有内容的状态备注也撑开
+    document.addEventListener('DOMContentLoaded', function () {
+        var areas = document.querySelectorAll('textarea.status-note');
+        areas.forEach(function (el) {
+            autoGrow(el);
+        });
+    });
+</script>
+
+    {% endblock %}
