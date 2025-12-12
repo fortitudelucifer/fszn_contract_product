@@ -21,11 +21,25 @@
     <div style="margin-bottom: 8px;">
         <label>通知通道：</label>
         <select name="channel">
+            <!-- 钉钉群机器人 -->
+            <option value="ding" {% if default_channel == 'ding' %}selected{% endif %}>钉钉</option>
+
+            <!-- 企业微信/微信群机器人（走 wechat 通道） -->
+            <option value="wechat" {% if default_channel == 'wechat' %}selected{% endif %}>企业微信 / 微信</option>
+
+            <!-- 手机短信（走 sms 通道） -->
+            <option value="sms" {% if default_channel == 'sms' %}selected{% endif %}>手机</option>
+
+            <!-- 邮件（走 email 通道） -->
             <option value="email" {% if default_channel == 'email' %}selected{% endif %}>邮件</option>
-            <option value="sms" {% if default_channel == 'sms' %}selected{% endif %}>短信</option>
-            <option value="wechat" {% if default_channel == 'wechat' %}selected{% endif %}>微信/企业微信</option>
         </select>
+
+        <div style="font-size: 12px; color: #666;">
+            根据这里选择的通道，系统会在你选择了“接收用户”且未手动填写“接收人”时，
+            自动使用对应的联系方式（邮箱 / 手机 / 微信等）。
+        </div>
     </div>
+
 
     <div style="margin-bottom: 8px;">
         <label>接收用户（系统内已注册，可选）：</label><br>

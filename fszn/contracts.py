@@ -6,7 +6,7 @@ from datetime import datetime, date
 import os
 import csv
 from io import StringIO
-
+from flask_login import current_user
 from flask import (
     Blueprint, render_template, request,
     redirect, url_for, flash, session, send_from_directory, current_app, make_response
@@ -112,7 +112,7 @@ ROLE_ALLOWED_TYPES = {
     'default': {'contract', 'tech', 'drawing', 'invoice', 'ticket'},
 }
 
-notification_service = get_notification_service()
+
 
 # 手工通知的事件类型列表（仅用于界面展示和日志记录）
 NOTIFICATION_EVENT_CHOICES = [
@@ -593,6 +593,8 @@ def notify_contract(contract_id: int):
                 users=users,
             )
 
+        notification_service = get_notification_service()
+
         # 组织模板参数（后续可以扩展更多字段）
         params = {
             "contract_id": contract.id,
@@ -602,6 +604,9 @@ def notify_contract(contract_id: int):
             "message": message,
             "event_code": event_code,
             "target_user_id": target_user.id if target_user else None,
+            # === 新增两个字段，给机器人用 ===
+            "operator_name": username,  # 如果你的字段叫别的，比如 username，就换一下
+            "contract_url": url_for("contracts.view_contract", contract_id=contract.id, _external=True),
         }
 
         # 通过通知服务发送（当前仍为 Dummy 实现，只打印日志）

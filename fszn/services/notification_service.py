@@ -1,23 +1,22 @@
-# -*- coding: utf-8 -*-
+# fszn/services/notification_service.py
+
 from __future__ import annotations
 
-from typing import Protocol, Literal, Dict, Any
-from flask import current_app
-import smtplib
+from typing import Any, Dict, Protocol, Literal
 from email.mime.text import MIMEText
 from email.utils import formataddr
+import smtplib,time, hmac, hashlib, base64
+from urllib.parse import urlencode
+import requests
+from flask import current_app
 
-NotificationChannel = Literal["email", "sms", "wechat"]
+
+# 通道枚举：先预留 email/sms/wechat/ding，后面可以逐步实现
+NotificationChannel = Literal["email", "sms", "wechat", "ding"]
 
 
 class NotificationService(Protocol):
-    """通知服务接口协议。
-
-    说明：
-        - 目前只是一个抽象协议，后续可以实现多个具体类：
-          EmailNotificationService / SmsNotificationService / WechatNotificationService 等。
-        - 在 v2.0 初期，我们可以只做一个“打印日志”的假实现，便于调试调用链。
-    """
+    """通知服务接口协议：业务只依赖这一层"""
 
     def send(
         self,
@@ -26,18 +25,11 @@ class NotificationService(Protocol):
         template_code: str,
         params: Dict[str, Any] | None = None,
     ) -> None:
-        """发送通知的统一入口。
-
-        :param channel: 通道类型，例如 "email" / "sms" / "wechat"
-        :param target: 目标地址，例如邮箱、手机号、微信 openid 等
-        :param template_code: 模板编码，如 "PROCUREMENT_ORDER_CREATED"
-        :param params: 模板参数字典，用于渲染模板内容
-        """
         ...
 
 
 class DummyNotificationService:
-    """简单的占位实现：目前只是在服务器日志/控制台打印，方便调试调用流程。"""
+    """占位实现：仅打印日志，开发/测试环境用"""
 
     def send(
         self,
@@ -46,58 +38,30 @@ class DummyNotificationService:
         template_code: str,
         params: Dict[str, Any] | None = None,
     ) -> None:
-        # TODO: 将来这里可以替换为真正的发送逻辑（邮件/短信/微信）
         print(
-            f"[Notification] channel={channel}, target={target}, "
+            f"[Notification:Dummy] channel={channel}, target={target}, "
             f"template={template_code}, params={params}"
         )
 
-# ========= 新增：通知服务工厂 =========
-
-_notification_service_singleton: NotificationService | None = None
-
-
-def get_notification_service() -> NotificationService:
-    """根据配置返回一个全局可复用的通知服务实例。
-
-    当前阶段：
-    - 若配置为 'dummy' 或未配置，则使用 DummyNotificationService；
-    - 未来可在此处扩展 email / sms / wechat 的真实实现。
-    """
-    global _notification_service_singleton
-    if _notification_service_singleton is not None:
-        return _notification_service_singleton
-
-    backend = (current_app.config.get("NOTIFICATION_BACKEND") or "dummy").lower()
-
-    # 暂时没有别的实现，先全部回退到 Dummy
-    # 未来你新增 EmailNotificationService 等时，在这里做分支
-    if backend == "dummy":
-        _notification_service_singleton = DummyNotificationService()
-    elif backend == "email":
-        _notification_service_singleton = EmailNotificationService()
-    else:
-        _notification_service_singleton = DummyNotificationService()
-    return _notification_service_singleton
-
 
 class EmailNotificationService:
-    """基于 SMTP 的邮箱通知实现。
+    """基于 SMTP 的邮件通知实现（目前只处理 channel='email'）"""
 
-    说明：
-    - 使用 config 中的 MAIL_* 配置；
-    - 仅在 channel == 'email' 时真正发邮件，
-      其它通道暂时仍打印日志（避免调用方报错）。
-    """
-
-    def __init__(self) -> None:
-        cfg = current_app.config
-        self.server = cfg.get("MAIL_SERVER")
-        self.port = cfg.get("MAIL_PORT", 587)
-        self.use_tls = cfg.get("MAIL_USE_TLS", True)
-        self.username = cfg.get("MAIL_USERNAME")
-        self.password = cfg.get("MAIL_PASSWORD")
-        self.default_sender = cfg.get("MAIL_DEFAULT_SENDER") or self.username
+    def __init__(
+        self,
+        server: str,
+        port: int,
+        use_tls: bool,
+        username: str | None,
+        password: str | None,
+        default_sender: str,
+    ) -> None:
+        self.server = server
+        self.port = port
+        self.use_tls = use_tls
+        self.username = username
+        self.password = password
+        self.default_sender = default_sender
 
     def send(
         self,
@@ -108,16 +72,23 @@ class EmailNotificationService:
     ) -> None:
         params = params or {}
 
+        # 目前只处理 email 通道，其他通道直接打印日志
         if channel != "email":
-            # 暂时对非 email 通道不做真实发送，避免业务出错
             print(
                 f"[Notification:EmailService] non-email channel={channel}, "
                 f"target={target}, template={template_code}, params={params}"
             )
             return
 
-        # 简单示例：用 template_code 拼一个主题，message 作为正文
-        subject = f"[{template_code}] 合同通知"
+        if not target:
+            print(
+                f"[Notification:EmailService] empty target, "
+                f"template={template_code}, params={params}"
+            )
+            return
+
+        # subject 可以让调用方通过 params 传；没传就用 template_code 兜底
+        subject = params.get("subject") or f"[{template_code}] 合同通知"
         message = params.get("message") or ""
 
         msg = MIMEText(message, "plain", "utf-8")
@@ -125,14 +96,283 @@ class EmailNotificationService:
         msg["To"] = target
         msg["Subject"] = subject
 
-        with smtplib.SMTP(self.server, self.port) as s:
+        with smtplib.SMTP(self.server, self.port) as smtp:
             if self.use_tls:
-                s.starttls()
+                smtp.starttls()
             if self.username and self.password:
-                s.login(self.username, self.password)
-            s.sendmail(self.default_sender, [target], msg.as_string())
+                smtp.login(self.username, self.password)
+            smtp.sendmail(self.default_sender, [target], msg.as_string())
 
-        print(
-            f"[Notification:EmailService] sent email to {target}, "
-            f"template={template_code}, params={params}"
+
+class DingTalkRobotNotificationService:
+    """钉钉群自定义机器人通知实现（channel='ding'）"""
+
+    def __init__(self, webhook: str, secret: str | None = None) -> None:
+        self.webhook = webhook
+        self.secret = secret or ""
+
+    def _build_signed_url(self) -> str:
+        """如果配置了 secret，则按钉钉规范做 timestamp + sign"""
+        if not self.secret:
+            return self.webhook
+
+        timestamp = str(int(time.time() * 1000))
+        string_to_sign = f"{timestamp}\n{self.secret}".encode("utf-8")
+        h = hmac.new(self.secret.encode("utf-8"), string_to_sign, hashlib.sha256)
+        sign = base64.b64encode(h.digest()).decode("utf-8")
+        query = urlencode({"timestamp": timestamp, "sign": sign})
+        if "?" in self.webhook:
+            return f"{self.webhook}&{query}"
+        return f"{self.webhook}?{query}"
+
+    def send(
+        self,
+        channel: NotificationChannel,
+        target: str,
+        template_code: str,
+        params: Dict[str, Any] | None = None,
+    ) -> None:
+        params = params or {}
+
+        if channel != "ding":
+            # 多余的调用直接忽略，不抛异常
+            print(
+                f"[Notification:DingTalk] skip non-ding channel={channel}, "
+                f"template={template_code}, params={params}"
+            )
+            return
+
+        # 从 params 里取一些常用字段；没有就用空串兜底
+        contract_number = params.get("contract_number") or ""
+        contract_name = params.get("contract_name") or ""
+        event_code = params.get("event_code") or template_code
+        operator_name = params.get("operator_name") or ""
+        extra_message = params.get("message") or ""
+        contract_url = params.get("contract_url") or ""
+
+        content_lines = [
+            f"【合同事件】{event_code}",
+        ]
+        if contract_number:
+            content_lines.append(f"- 合同编号：{contract_number}")
+        if contract_name:
+            content_lines.append(f"- 合同名称：{contract_name}")
+        if operator_name:
+            content_lines.append(f"- 操作人：{operator_name}")
+        if extra_message:
+            content_lines.append(f"- 说明：{extra_message}")
+        if contract_url:
+            content_lines.append(f"- 链接：{contract_url}")
+
+        content = "\n".join(content_lines)
+
+        payload = {
+            "msgtype": "text",
+            "text": {
+                "content": content,
+            },
+        }
+
+        url = self._build_signed_url()
+        try:
+            resp = requests.post(url, json=payload, timeout=5)
+            if resp.status_code != 200:
+                print(
+                    f"[Notification:DingTalk] http_error status={resp.status_code}, "
+                    f"body={resp.text}"
+                )
+        except Exception as exc:
+            print(
+                f"[Notification:DingTalk] send_error exc={exc!r}, "
+                f"payload={payload}"
+            )
+
+class WeComRobotNotificationService:
+    """企业微信群自定义机器人通知实现（channel='wechat'）"""
+
+    def __init__(self, webhook: str) -> None:
+        self.webhook = webhook
+
+    def send(
+        self,
+        channel: NotificationChannel,
+        target: str,
+        template_code: str,
+        params: Dict[str, Any] | None = None,
+    ) -> None:
+        params = params or {}
+
+        if channel != "wechat":
+            print(
+                f"[Notification:WeCom] skip non-wechat channel={channel}, "
+                f"template={template_code}, params={params}"
+            )
+            return
+
+        contract_number = params.get("contract_number") or ""
+        contract_name = params.get("contract_name") or ""
+        event_code = params.get("event_code") or template_code
+        operator_name = params.get("operator_name") or ""
+        extra_message = params.get("message") or ""
+        contract_url = params.get("contract_url") or ""
+
+        # 用 markdown 格式，让企业微信里看起来更友好
+        lines = [f"**合同事件：{event_code}**"]
+        if contract_number:
+            lines.append(f"> 合同编号：{contract_number}")
+        if contract_name:
+            lines.append(f"> 合同名称：{contract_name}")
+        if operator_name:
+            lines.append(f"> 操作人：{operator_name}")
+        if extra_message:
+            lines.append(f"> 说明：{extra_message}")
+        if contract_url:
+            lines.append(f"[点击查看合同]({contract_url})")
+
+        content = "\n".join(lines)
+
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {
+                "content": content,
+            },
+        }
+
+        try:
+            resp = requests.post(self.webhook, json=payload, timeout=5)
+            if resp.status_code != 200:
+                print(
+                    f"[Notification:WeCom] http_error status={resp.status_code}, "
+                    f"body={resp.text}"
+                )
+        except Exception as exc:
+            print(
+                f"[Notification:WeCom] send_error exc={exc!r}, "
+                f"payload={payload}"
+            )
+
+
+class RoutedNotificationService:
+    """
+    根据 channel 路由到具体实现的“中间层”。
+
+    - email：优先走 email 实现，没配则走默认 backend（一般是 Dummy）
+    - sms/wechat/ding：暂时都回退到默认 backend，未来可以各自挂真实实现
+    """
+
+    def __init__(
+        self,
+        default_backend: NotificationService,
+        email: NotificationService | None = None,
+        ding: NotificationService | None = None,
+        wechat: NotificationService | None = None,
+        sms: NotificationService | None = None,
+    ) -> None:
+        self.default_backend = default_backend
+        self.email = email
+        self.ding = ding
+        self.wechat = wechat
+        self.sms = sms
+
+    def send(
+        self,
+        channel: NotificationChannel,
+        target: str,
+        template_code: str,
+        params: Dict[str, Any] | None = None,
+    ) -> None:
+        params = params or {}
+
+        if channel == "email":
+            backend = self.email or self.default_backend
+        elif channel == "sms":
+            backend = self.sms or self.default_backend
+        elif channel == "wechat":
+            backend = self.wechat or self.default_backend
+        elif channel == "ding":
+            backend = self.ding or self.default_backend
+        else:
+            backend = self.default_backend
+
+        try:
+            backend.send(channel, target, template_code, params)
+        except Exception as exc:  # 不让业务崩，兜底打印日志
+            print(
+                f"[Notification:Routed] error channel={channel}, "
+                f"target={target}, template={template_code}, "
+                f"params={params}, exc={exc!r}"
+            )
+
+
+# ====== 工厂 & 单例 ======
+
+_notification_service_singleton: NotificationService | None = None
+
+
+def _build_notification_service_from_config() -> NotificationService:
+    """根据 Flask 配置构造一个 NotificationService 实例。"""
+    cfg = current_app.config
+    backend = (cfg.get("NOTIFICATION_BACKEND") or "dummy").lower()
+
+    # 默认后端：Dummy
+    dummy = DummyNotificationService()
+
+    # ========== 邮件后端 ==========
+    email_service: NotificationService | None = None
+    if backend == "email":
+        server = cfg.get("MAIL_SERVER")
+        port = int(cfg.get("MAIL_PORT", 25))
+        use_tls = bool(cfg.get("MAIL_USE_TLS", False))
+        username = cfg.get("MAIL_USERNAME")
+        password = cfg.get("MAIL_PASSWORD")
+        default_sender = cfg.get("MAIL_DEFAULT_SENDER") or username
+
+        if not server or not default_sender:
+            print(
+                "[Notification] NOTIFICATION_BACKEND=email 但 SMTP 配置不完整，"
+                "回退到 DummyNotificationService。"
+            )
+        else:
+            email_service = EmailNotificationService(
+                server=server,
+                port=port,
+                use_tls=use_tls,
+                username=username,
+                password=password,
+                default_sender=default_sender,
+            )
+
+    # ========== 钉钉机器人 ==========
+    ding_service: NotificationService | None = None
+    ding_webhook = cfg.get("DINGTALK_WEBHOOK_URL")
+    if ding_webhook:
+        ding_secret = cfg.get("DINGTALK_SECRET")
+        ding_service = DingTalkRobotNotificationService(
+            webhook=ding_webhook,
+            secret=ding_secret,
         )
+
+    # ========== 企业微信群机器人 ==========
+    wecom_service: NotificationService | None = None
+    wecom_webhook = cfg.get("WECOM_WEBHOOK_URL")
+    if wecom_webhook:
+        wecom_service = WeComRobotNotificationService(
+            webhook=wecom_webhook,
+        )
+
+    # 路由器：默认 backend 仍然是 dummy
+    return RoutedNotificationService(
+        default_backend=dummy,
+        email=email_service,
+        ding=ding_service,
+        wechat=wecom_service,
+        # sms 暂时没有真实实现，就不传，保持走 dummy
+    )
+
+
+def get_notification_service() -> NotificationService:
+    """获取全局通知服务实例（惰性构造 + 单例）"""
+    global _notification_service_singleton
+    if _notification_service_singleton is None:
+        _notification_service_singleton = _build_notification_service_from_config()
+    return _notification_service_singleton

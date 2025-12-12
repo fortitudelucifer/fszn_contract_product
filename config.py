@@ -17,6 +17,16 @@ class Config:
     # 通知后端：dummy / email （未来可以扩展 sms / wechat）
     NOTIFICATION_BACKEND = "dummy"
 
+    # ===== 钉钉群机器人配置 =====
+    # 钉钉机器人 webhook（完整 URL）
+    DINGTALK_WEBHOOK_URL = ""
+    # 如果你在钉钉机器人里启用了“加签”，在这里填入 secret；没启用就留空
+    DINGTALK_SECRET = ""
+
+    # ===== 企业微信（WeCom）群机器人配置 =====
+    # 企业微信群机器人 webhook（完整 URL）
+    WECOM_WEBHOOK_URL = ""
+
     # == 如果用 email 作为通知渠道，配置 SMTP ==
     MAIL_SERVER = "smtp.example.com"
     MAIL_PORT = 587
