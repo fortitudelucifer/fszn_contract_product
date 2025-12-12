@@ -136,7 +136,6 @@ class DingTalkRobotNotificationService:
         params = params or {}
 
         if channel != "ding":
-            # 多余的调用直接忽略，不抛异常
             print(
                 f"[Notification:DingTalk] skip non-ding channel={channel}, "
                 f"template={template_code}, params={params}"
@@ -156,30 +155,29 @@ class DingTalkRobotNotificationService:
         message = params.get("message") or ""
         contract_url = params.get("contract_url") or ""
 
-        # ===== 构建 Markdown 内容 =====
-        md_lines = [
-            f"### 合同事件：**{event_label}**",
-        ]
+        # ===== 构建纯文本内容（逐行展示）=====
+        lines = []
+        lines.append(f"合同事件：{event_label}")
 
         if company:
-            md_lines.append(f"> 所属公司：{company}")
+            lines.append(f"所属公司：{company}")
 
         if contract_number:
-            md_lines.append(f"> 合同编号：{contract_number}")
+            lines.append(f"合同编号：{contract_number}")
 
         if contract_name:
-            md_lines.append(f"> 合同名称：{contract_name}")
+            lines.append(f"合同名称：{contract_name}")
 
         if operator_name:
-            md_lines.append(f"> 操作人：{operator_name}")
+            lines.append(f"操作人：{operator_name}")
 
         if message:
-            md_lines.append(f"> 说明：{message}")
+            lines.append(f"说明：{message}")
 
         if contract_url:
-            md_lines.append(f"[点击查看合同详情]({contract_url})")
+            lines.append(f"合同详情：{contract_url}")
 
-        content = "\n".join(md_lines)
+        content = "\n".join(lines)
 
         # ===== @手机号码（如果 target 是手机号） =====
         at_mobiles = []
@@ -187,10 +185,9 @@ class DingTalkRobotNotificationService:
             at_mobiles = [target.strip()]
 
         payload = {
-            "msgtype": "markdown",
-            "markdown": {
-                "title": f"合同事件：{event_label}",
-                "text": content,
+            "msgtype": "text",
+            "text": {
+                "content": content,
             },
             "at": {
                 "atMobiles": at_mobiles,
@@ -203,14 +200,13 @@ class DingTalkRobotNotificationService:
             resp = requests.post(url, json=payload, timeout=5)
             if resp.status_code != 200:
                 print(
-                    f"[Notification:DingTalk] http_error status={resp.status_code}, "
-                    f"body={resp.text}"
+                    f"[Notification:DingTalk] http_error status={resp.status_code}, body={resp.text}"
                 )
         except Exception as exc:
             print(
-                f"[Notification:DingTalk] send_error exc={exc!r}, "
-                f"payload={payload}"
+                f"[Notification:DingTalk] send_error exc={exc!r}, payload={payload}"
             )
+
 
 
 class WeComRobotNotificationService:
