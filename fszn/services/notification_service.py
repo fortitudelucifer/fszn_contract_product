@@ -5,14 +5,15 @@ from __future__ import annotations
 from typing import Any, Dict, Protocol, Literal
 from email.mime.text import MIMEText
 from email.utils import formataddr
-import smtplib,time, hmac, hashlib, base64
+import smtplib,time, hmac, hashlib, base64, urllib.parse, argparse
 from urllib.parse import urlencode
 import requests
 from flask import current_app
 
 
-# 通道枚举：先预留 email/sms/wechat/ding，后面可以逐步实现
-NotificationChannel = Literal["email", "sms", "wechat", "ding"]
+# 通道枚举：email / sms / wechat（个人微信）/ wechat_corp（企业微信）/ ding
+NotificationChannel = Literal["email", "sms", "wechat", "wechat_corp", "ding"]
+
 
 
 class NotificationService(Protocol):
@@ -142,34 +143,58 @@ class DingTalkRobotNotificationService:
             )
             return
 
-        # 从 params 里取一些常用字段；没有就用空串兜底
+        # ===== 从 params 里取字段 =====
+        event_label = (
+            params.get("event_label")
+            or params.get("event_code")
+            or template_code
+        )
+        company = params.get("company_name") or ""
         contract_number = params.get("contract_number") or ""
         contract_name = params.get("contract_name") or ""
-        event_code = params.get("event_code") or template_code
         operator_name = params.get("operator_name") or ""
-        extra_message = params.get("message") or ""
+        message = params.get("message") or ""
         contract_url = params.get("contract_url") or ""
 
-        content_lines = [
-            f"【合同事件】{event_code}",
+        # ===== 构建 Markdown 内容 =====
+        md_lines = [
+            f"### 合同事件：**{event_label}**",
         ]
-        if contract_number:
-            content_lines.append(f"- 合同编号：{contract_number}")
-        if contract_name:
-            content_lines.append(f"- 合同名称：{contract_name}")
-        if operator_name:
-            content_lines.append(f"- 操作人：{operator_name}")
-        if extra_message:
-            content_lines.append(f"- 说明：{extra_message}")
-        if contract_url:
-            content_lines.append(f"- 链接：{contract_url}")
 
-        content = "\n".join(content_lines)
+        if company:
+            md_lines.append(f"> 所属公司：{company}")
+
+        if contract_number:
+            md_lines.append(f"> 合同编号：{contract_number}")
+
+        if contract_name:
+            md_lines.append(f"> 合同名称：{contract_name}")
+
+        if operator_name:
+            md_lines.append(f"> 操作人：{operator_name}")
+
+        if message:
+            md_lines.append(f"> 说明：{message}")
+
+        if contract_url:
+            md_lines.append(f"[点击查看合同详情]({contract_url})")
+
+        content = "\n".join(md_lines)
+
+        # ===== @手机号码（如果 target 是手机号） =====
+        at_mobiles = []
+        if target and target.strip().isdigit():
+            at_mobiles = [target.strip()]
 
         payload = {
-            "msgtype": "text",
-            "text": {
-                "content": content,
+            "msgtype": "markdown",
+            "markdown": {
+                "title": f"合同事件：{event_label}",
+                "text": content,
+            },
+            "at": {
+                "atMobiles": at_mobiles,
+                "isAtAll": False,
             },
         }
 
@@ -187,8 +212,9 @@ class DingTalkRobotNotificationService:
                 f"payload={payload}"
             )
 
+
 class WeComRobotNotificationService:
-    """企业微信群自定义机器人通知实现（channel='wechat'）"""
+    """企业微信群自定义机器人通知实现（channel='wechat_corp'）"""
 
     def __init__(self, webhook: str) -> None:
         self.webhook = webhook
@@ -202,9 +228,9 @@ class WeComRobotNotificationService:
     ) -> None:
         params = params or {}
 
-        if channel != "wechat":
+        if channel != "wechat_corp":
             print(
-                f"[Notification:WeCom] skip non-wechat channel={channel}, "
+                f"[Notification:WeCom] skip non-wechat_corp channel={channel}, "
                 f"template={template_code}, params={params}"
             )
             return
@@ -287,8 +313,12 @@ class RoutedNotificationService:
             backend = self.email or self.default_backend
         elif channel == "sms":
             backend = self.sms or self.default_backend
-        elif channel == "wechat":
+        elif channel == "wechat_corp":
+            # 企业微信机器人
             backend = self.wechat or self.default_backend
+        elif channel == "wechat":
+            # 个人微信目前没有真实实现，先走默认 backend（一般是 Dummy）
+            backend = self.default_backend
         elif channel == "ding":
             backend = self.ding or self.default_backend
         else:

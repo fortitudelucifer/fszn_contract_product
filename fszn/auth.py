@@ -62,7 +62,7 @@ def register():
         password = request.form.get('password')
         confirm = request.form.get('confirm')
 
-        if not username or not email or not password:
+        if not username or not email or not password or not real_name:
             flash('请填写所有必填项')
             return render_template('auth/register.html')
 
@@ -81,6 +81,7 @@ def register():
         # 创建用户，密码用哈希保存
         user = User(
             username=username,
+            real_name=real_name,
             email=email,
             phone=phone, # or None     若为空字符串则存 None
             wechat=wechat, # or None   若为空字符串则存 None

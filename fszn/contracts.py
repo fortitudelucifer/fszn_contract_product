@@ -122,6 +122,8 @@ NOTIFICATION_EVENT_CHOICES = [
     ('PROCUREMENT_UPDATE', '采购进展通知'),
     ('OTHER', '其他自定义事件'),
 ]
+# 事件代码 → 中文名映射
+EVENT_CODE_TO_LABEL = {code: label for code, label in NOTIFICATION_EVENT_CHOICES}
 
 
 def allowed_file(filename: str) -> bool:
@@ -570,15 +572,23 @@ def notify_contract(contract_id: int):
                 target_user = User.query.get(target_user_id)
 
         # 如果选择了系统内用户，但未手动输入 target，则根据通道自动取对应字段
+                # 如果选择了系统内用户，但未手动输入 target，则根据通道自动取对应字段
         if target_user and not target:
             if channel == 'email':
                 target = (target_user.email or '').strip()
             elif channel == 'sms':
-                target = (target_user.phone or '').strip()
+                target = (getattr(target_user, 'phone', '') or '').strip()
             elif channel == 'wechat':
-                target = (target_user.wechat or '').strip()
+                # 个人微信：走用户的 wechat 字段
+                target = (getattr(target_user, 'wechat', '') or '').strip()
+            elif channel in ('wechat_corp', 'ding'):
+                # 企业微信群机器人 / 钉钉机器人：不需要 per-user target
+                target = ''
 
-        if not target:
+
+        # 对需要“具体联系人”的通道（邮箱 / 手机 / 个人微信）强制要求 target
+        requires_target = channel in ('email', 'sms', 'wechat')
+        if requires_target and not target:
             flash('请选择接收用户或填写接收人联系方式（邮箱 / 手机 / 微信ID 等）')
             return render_template(
                 'contracts/notify.html',
@@ -593,9 +603,13 @@ def notify_contract(contract_id: int):
                 users=users,
             )
 
+
         notification_service = get_notification_service()
 
         # 组织模板参数（后续可以扩展更多字段）
+        company_name = getattr(contract, "company_name", "")
+        event_label = EVENT_CODE_TO_LABEL.get(event_code, event_code)
+
         params = {
             "contract_id": contract.id,
             "project_code": contract.project_code,
@@ -605,9 +619,17 @@ def notify_contract(contract_id: int):
             "event_code": event_code,
             "target_user_id": target_user.id if target_user else None,
             # === 新增两个字段，给机器人用 ===
-            "operator_name": username,  # 如果你的字段叫别的，比如 username，就换一下
-            "contract_url": url_for("contracts.view_contract", contract_id=contract.id, _external=True),
+            "operator_name": user.real_name,
+            "contract_url": url_for(
+                "contracts.contract_overview",
+                contract_id=contract.id,
+                _external=True,
+            ),
         }
+
+
+        params["event_label"] = event_label
+        params["company_name"] = contract.company.name if contract.company else ""
 
         # 通过通知服务发送（当前仍为 Dummy 实现，只打印日志）
         notification_service.send(
@@ -636,7 +658,7 @@ def notify_contract(contract_id: int):
             request=request,
         )
 
-        flash('通知已发送（当前为测试模式，仅记录在服务器日志和操作日志中）')
+        flash('通知已发送（如使用钉钉/企业微信通道，请到对应群查看消息）')
         return redirect(url_for('contracts.list_contracts'))
 
     # GET：展示发送通知表单
@@ -644,7 +666,7 @@ def notify_contract(contract_id: int):
         'contracts/notify.html',
         user=user,
         contract=contract,
-        default_channel='wechat',
+        default_channel='ding',  # 默认通道，也可修改为wechat_corp / ding / email / sms
         default_template_code='CONTRACT_EVENT',
         default_target='',
         default_message=f'项目 {contract.project_code} - {contract.name} 的进度提醒',
