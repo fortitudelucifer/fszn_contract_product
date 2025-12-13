@@ -29,6 +29,8 @@ from .services.feedback_service import FeedbackService
 from .services import get_notification_service
 from .services.file_service import FileService
 file_service = FileService()
+from .services.preview_service import preview_service
+
 
 from .operation_log import (
     log_operation,
@@ -1888,12 +1890,24 @@ def preview_file(contract_id, file_id):
     is_office = (ext in office_exts)
     is_cad = (ext in cad_exts)
 
-    # 原始文件内联访问 URL（给 iframe/img 用）
+    # 原始文件内联访问（PDF/图片用）
     raw_url = url_for(
         'contracts.preview_file_raw',
         contract_id=contract.id,
         file_id=pf.id,
     )
+
+    # Office 预览：尝试生成/获取 PDF 预览
+    preview_pdf_url = None
+    if is_office:
+        src_path = file_service.get_file_path(contract, pf)
+        preview_path = preview_service.get_or_generate_office_preview(contract, pf, src_path)
+        if preview_path:
+            preview_pdf_url = url_for(
+                'contracts.preview_converted_file_raw',
+                contract_id=contract.id,
+                file_id=pf.id,
+            )
 
     return render_template(
         'contracts/file_preview.html',
@@ -1904,8 +1918,8 @@ def preview_file(contract_id, file_id):
         is_image=is_image,
         is_office=is_office,
         is_cad=is_cad,
+        preview_pdf_url=preview_pdf_url,
     )
-
 
 @contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview/raw')
 @login_required
@@ -1961,6 +1975,52 @@ def preview_file_raw(contract_id, file_id):
     mime, _ = mimetypes.guess_type(filename_for_ext)
     mime = mime or "application/octet-stream"
     resp = send_file(file_path, mimetype=mime, as_attachment=False)
+    resp.headers.pop("Content-Disposition", None)
+    return resp
+ 
+# Office 文件转换后的 PDF 预览
+
+@contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview/converted')
+@login_required
+def preview_converted_file_raw(contract_id, file_id):
+    """
+    返回 Office 转换后的 PDF 预览文件（给 iframe 用）
+    """
+
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+    pf = ProjectFile.query.filter_by(
+        id=file_id,
+        contract_id=contract.id,
+        is_deleted=False
+    ).first_or_404()
+
+    # 权限同 preview
+    role = (user.role or '').strip().lower() if user and user.role else ''
+    if role in ('admin', 'boss', 'software_engineer'):
+        pass
+    elif role == 'customer':
+        if not (pf.is_public and pf.file_type in ('contract', 'tech')):
+            return "Unauthorized", 403
+    else:
+        if pf.owner_role and pf.owner_role != user.role:
+            return "Unauthorized", 403
+
+    # 原文件路径（用于必要时重新生成预览）
+    src_path = file_service.get_file_path(contract, pf)
+    preview_path = preview_service.get_or_generate_office_preview(contract, pf, src_path)
+    if not preview_path or not os.path.exists(preview_path):
+        return "Preview file not found", 404
+
+    # 返回 PDF 预览文件（inline 显示）
+    resp = send_file(
+        preview_path,
+        mimetype="application/pdf",
+        as_attachment=False,
+    )
+    # 去掉 Content-Disposition，避免浏览器强制下载
     resp.headers.pop("Content-Disposition", None)
     return resp
 

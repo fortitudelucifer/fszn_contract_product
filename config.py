@@ -34,3 +34,8 @@ class Config:
     MAIL_USERNAME = "1284634061@qq.com"
     MAIL_PASSWORD = "your_password"
     MAIL_DEFAULT_SENDER = "noreply@example.com"
+
+    LIBREOFFICE_PATH = r"C:\Program Files\LibreOffice\program\soffice.exe"  # 视你的实际安装路径而定
+    LIBREOFFICE_TIMEOUT = 60  # 秒
+    # 可选：指定预览目录（不指定则使用 UPLOAD_FOLDER/preview）
+    # PREVIEW_FOLDER = r"E:\BaiduSyncdisk\code\fszn_contract_product\uploads_preview"
