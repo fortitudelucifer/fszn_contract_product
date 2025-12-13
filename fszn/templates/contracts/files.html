@@ -32,7 +32,6 @@
 </div>
 
 <h2>当前文件</h2>
-<h2>当前文件</h2>
 
 <form method="get" style="margin-bottom: 10px; border:1px solid #ccc; padding:8px;">
     <strong>筛选条件：</strong>
@@ -148,21 +147,54 @@
     3. 建议尽量上传 PDF 或常见图片格式（PNG/JPG），单个文件大小不超过 {{ (config.MAX_CONTENT_LENGTH or 0) // (1024*1024) }} MB，但也支持其它类型文件。<br>
 </div>
 
-<form method="post" enctype="multipart/form-data">
-    <p>
-        <label>
-            选择文件（可多选）：
-            <input type="file" name="files" multiple>
-        </label>
-    </p>
-    <p style="color: #666; font-size: 13px;">
-        可一次选择多个文件。<br>
-        多文件上传的 file_type / version / 公共字段将应用于所有文件。
-    </p>
+<style>
+    .upload-box {
+        border: 2px dashed #bbb;
+        padding: 16px;
+        border-radius: 8px;
+        text-align: center;
+        background: #fafafa;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+        .upload-box.dragover {
+            background: #eef7ff;
+            border-color: #3399ff;
+        }
+
+    .file-list {
+        max-height: 120px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        margin-top: 10px;
+        padding: 6px;
+        border-radius: 6px;
+        font-size: 13px;
+        background: #fff;
+    }
+
+    .file-list-item {
+        border-bottom: 1px solid #eee;
+        padding: 3px 0;
+    }
+</style>
+
+<form method="post" enctype="multipart/form-data" id="uploadForm">
+
+    <!-- ⬇ 上传盒子（可点击+可拖拽） -->
+    <div id="uploadBox" class="upload-box">
+        <div id="uploadText">点击或拖拽文件到此处（可多选）</div>
+        <input type="file" id="fileInput" name="files" multiple style="display: none;">
+    </div>
+
+    <!-- ⬇ 已选择文件预览 -->
+    <div id="fileList" class="file-list" style="display: none;"></div>
+
     <p>
         <label>
             文件类型：
-            <select name="file_type">
+            <select name="file_type" required>
                 <option value="contract">合同</option>
                 <option value="tech">技术文档</option>
                 <option value="drawing">图纸</option>
@@ -170,21 +202,68 @@
             </select>
         </label>
     </p>
+
     <p>
         <label>
-            版本号：
-            <input type="text" name="version" placeholder="例如：V1 或 1.0">
+            版本：
+            <input type="text" name="version" placeholder="如：V1，1.0，1.1，2.0等" required>
         </label>
     </p>
+
     <p>
         <label>
-            <input type="checkbox" name="is_public" value="y">
-            公开给客户下载（仅对合同和技术文档生效）
+            <input type="checkbox" name="is_public" value="1">
+            对客户公开
         </label>
     </p>
-    <p>
-        <button type="submit">上传</button>
-    </p>
+
+    <button type="submit">上传</button>
 </form>
+
+<script>
+    const uploadBox = document.getElementById("uploadBox");
+    const fileInput = document.getElementById("fileInput");
+    const fileListDiv = document.getElementById("fileList");
+    const uploadText = document.getElementById("uploadText");
+
+    uploadBox.onclick = () => fileInput.click();
+
+    uploadBox.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        uploadBox.classList.add("dragover");
+    });
+
+    uploadBox.addEventListener("dragleave", () => {
+        uploadBox.classList.remove("dragover");
+    });
+
+    uploadBox.addEventListener("drop", (e) => {
+        e.preventDefault();
+        uploadBox.classList.remove("dragover");
+
+        fileInput.files = e.dataTransfer.files;
+        updateFileList();
+    });
+
+    fileInput.onchange = updateFileList;
+
+    function updateFileList() {
+        const files = fileInput.files;
+        if (!files.length) {
+            fileListDiv.style.display = "none";
+            uploadText.innerText = "点击或拖拽文件到此处（可多选）";
+            return;
+        }
+
+        uploadText.innerText = `已选择 ${files.length} 个文件`;
+
+        let html = "";
+        for (let f of files) {
+            html += `<div class="file-list-item">${f.name}</div>`;
+        }
+        fileListDiv.innerHTML = html;
+        fileListDiv.style.display = "block";
+    }
+</script>
 
 {% endblock %}
