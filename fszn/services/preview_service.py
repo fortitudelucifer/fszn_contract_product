@@ -157,11 +157,11 @@ class PreviewService:
         if os.path.exists(target):
             return target
 
-        # 回退：找 out_dir 下同名 base.pdf
-        name = pf.original_filename or pf.stored_filename or "file"
-        base = os.path.splitext(os.path.basename(name))[0]
-        base = _sanitize_part(base) or "file"
-        candidate = os.path.join(out_dir, f"{base}.pdf")
+        # 优先按 src_path 的 base 去找（LibreOffice 输出名通常就是它）
+        src_base = os.path.splitext(os.path.basename(src_path))[0]
+        src_base = _sanitize_part(src_base) or "file"
+        candidate = os.path.join(out_dir, f"{src_base}.pdf")
+
         if os.path.exists(candidate):
             # 为了后续统一命名，可以重命名到 *_preview.pdf（可选）
             try:
@@ -171,6 +171,33 @@ class PreviewService:
                 # 重命名失败也可以直接用 candidate
                 return candidate
 
+    # （可选兜底）再按 original_filename 的 base 尝试一次，防止某些环境输出跟 original 一致
+        name = pf.original_filename or pf.stored_filename or "file"
+        base = os.path.splitext(os.path.basename(name))[0]
+        base = _sanitize_part(base) or "file"
+        candidate2 = os.path.join(out_dir, f"{base}.pdf")
+        if os.path.exists(candidate2):
+            try:
+                os.replace(candidate2, target)
+                return target
+            except OSError:
+                return candidate2
+
+            try:
+                pdfs = [
+                    os.path.join(out_dir, fn)
+                    for fn in os.listdir(out_dir)
+                    if fn.lower().endswith(".pdf")
+                ]
+                if pdfs:
+                    newest = max(pdfs, key=lambda p: os.path.getmtime(p))
+                    try:
+                        os.replace(newest, target)
+                        return target
+                    except OSError:
+                        return newest
+            except OSError:
+                pass
         return None
 
 

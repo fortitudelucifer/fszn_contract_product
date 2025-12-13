@@ -1847,7 +1847,7 @@ def download_file(contract_id, file_id):
 @contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview')
 @login_required
 def preview_file(contract_id, file_id):
-    """文件预览页：PDF/图片内联预览，Office/CAD 显示提示 + 下载按钮"""
+    """文件预览页：PDF/图片内联预览，Office 通过转换后的 PDF 预览"""
 
     # 拿当前用户
     user_id = session.get('user_id')
@@ -1875,14 +1875,11 @@ def preview_file(contract_id, file_id):
             return redirect(url_for('contracts.manage_files', contract_id=contract.id))
 
     # ===== 根据扩展名判断类型 =====
-    filename_for_ext = pf.original_filename or pf.stored_filename
-    ext = ''
-    if filename_for_ext and '.' in filename_for_ext:
-        ext = filename_for_ext.rsplit('.', 1)[1].lower()
+    filename_for_ext = pf.original_filename or pf.stored_filename or ""
+    ext = filename_for_ext.rsplit('.', 1)[1].lower() if '.' in filename_for_ext else ''
 
-    # 预览类型标志
     image_exts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']
-    office_exts = ['doc', 'docx', 'xls', 'xlsx']
+    office_exts = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
     cad_exts = ['dwg', 'dxf', 'sldprt', 'sldasm', 'slddrw']
 
     is_pdf = (ext == 'pdf')
@@ -1897,17 +1894,14 @@ def preview_file(contract_id, file_id):
         file_id=pf.id,
     )
 
-    # Office 预览：尝试生成/获取 PDF 预览
+    # Office：只给模板一个 URL，真正生成/读取预览 PDF 在 preview_converted_file_raw 里做
     preview_pdf_url = None
     if is_office:
-        src_path = file_service.get_file_path(contract, pf)
-        preview_path = preview_service.get_or_generate_office_preview(contract, pf, src_path)
-        if preview_path:
-            preview_pdf_url = url_for(
-                'contracts.preview_converted_file_raw',
-                contract_id=contract.id,
-                file_id=pf.id,
-            )
+        preview_pdf_url = url_for(
+            'contracts.preview_converted_file_raw',
+            contract_id=contract.id,
+            file_id=pf.id,
+        )
 
     return render_template(
         'contracts/file_preview.html',
@@ -1924,7 +1918,7 @@ def preview_file(contract_id, file_id):
 @contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview/raw')
 @login_required
 def preview_file_raw(contract_id, file_id):
-    """返回文件本体，用于 iframe/img 内联展示"""
+    """返回原始文件，用于 PDF/图片 inline 预览"""
 
     user_id = session.get('user_id')
     user = User.query.get(user_id) if user_id else None
@@ -1936,32 +1930,26 @@ def preview_file_raw(contract_id, file_id):
         is_deleted=False
     ).first_or_404()
 
-    # 和预览页相同的权限逻辑
+    # 权限判断同 preview
     role = (user.role or '').strip().lower() if user and user.role else ''
-
     if role in ('admin', 'boss', 'software_engineer'):
         pass
     elif role == 'customer':
         if not (pf.is_public and pf.file_type in ('contract', 'tech')):
-            flash('你没有权限预览此文件')
-            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+            return "Unauthorized", 403
     else:
         if pf.owner_role and pf.owner_role != user.role:
-            flash('你只能预览自己部门上传的文件')
-            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+            return "Unauthorized", 403
 
-    # ===== 注意：下面这些必须在 if/elif/else 之外（顶格缩进）=====
     file_path = file_service.get_file_path(contract, pf)
     if not os.path.exists(file_path):
         return "File not found", 404
 
     filename_for_ext = pf.original_filename or pf.stored_filename or ""
-    ext = filename_for_ext.rsplit(".", 1)[-1].lower() if "." in filename_for_ext else ""
+    ext = filename_for_ext.rsplit('.', 1)[-1].lower() if "." in filename_for_ext else ""
 
-    # ---- 强制 PDF/图片的 MIME，且不加 download_name，避免任何 Content-Disposition 干扰 ----
     if ext == "pdf":
         resp = send_file(file_path, mimetype="application/pdf", as_attachment=False)
-        # 关键：彻底移除 Content-Disposition（有些环境会因为 filename 编码导致浏览器转下载）
         resp.headers.pop("Content-Disposition", None)
         return resp
 
@@ -1971,14 +1959,13 @@ def preview_file_raw(contract_id, file_id):
         resp.headers.pop("Content-Disposition", None)
         return resp
 
-    # 兜底（一般不会用到）
     mime, _ = mimetypes.guess_type(filename_for_ext)
     mime = mime or "application/octet-stream"
     resp = send_file(file_path, mimetype=mime, as_attachment=False)
     resp.headers.pop("Content-Disposition", None)
     return resp
- 
-# Office 文件转换后的 PDF 预览
+
+
 
 @contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview/converted')
 @login_required
@@ -1997,7 +1984,7 @@ def preview_converted_file_raw(contract_id, file_id):
         is_deleted=False
     ).first_or_404()
 
-    # 权限同 preview
+    # 权限同 preview / download
     role = (user.role or '').strip().lower() if user and user.role else ''
     if role in ('admin', 'boss', 'software_engineer'):
         pass
@@ -2008,9 +1995,47 @@ def preview_converted_file_raw(contract_id, file_id):
         if pf.owner_role and pf.owner_role != user.role:
             return "Unauthorized", 403
 
-    # 原文件路径（用于必要时重新生成预览）
+    # 原文件路径（必要时重新生成预览）
     src_path = file_service.get_file_path(contract, pf)
+
+    # ---- 第一步：走 preview_service 的统一逻辑（优先用它）----
     preview_path = preview_service.get_or_generate_office_preview(contract, pf, src_path)
+
+    # ---- 第二步：如果 preview_path 仍然为空 / 不存在，就按约定规则手工兜底找 ----
+    if not preview_path or not os.path.exists(preview_path):
+        # 预览根目录：优先 PREVIEW_FOLDER，其次 UPLOAD_FOLDER/preview
+        root = current_app.config.get("PREVIEW_FOLDER")
+        if not root:
+            root = os.path.join(current_app.config["UPLOAD_FOLDER"], "preview")
+
+        # 项目编号目录：和 preview_service._get_contract_preview_dir 保持一致
+        project_code = getattr(contract, "project_code", "") or ""
+        # 简单清洗：去掉非法字符、空格换成下划线
+        invalid = '\\/:*?"<>|'
+        for ch in invalid:
+            project_code = project_code.replace(ch, "")
+        project_code = project_code.replace(" ", "_")
+        if not project_code:
+            project_code = str(contract.id)
+
+        project_dir = os.path.join(root, project_code)
+
+        # 预览文件名：<原始名去扩展>_preview.pdf 或 <原始名去扩展>.pdf
+        name = pf.original_filename or pf.stored_filename or "file"
+        base = os.path.splitext(os.path.basename(name))[0]
+        for ch in invalid:
+            base = base.replace(ch, "")
+        base = base.replace(" ", "_") or "file"
+
+        candidate1 = os.path.join(project_dir, f"{base}_preview.pdf")
+        candidate2 = os.path.join(project_dir, f"{base}.pdf")
+
+        if os.path.exists(candidate1):
+            preview_path = candidate1
+        elif os.path.exists(candidate2):
+            preview_path = candidate2
+
+    # 兜底后还是没有，就真的是找不到预览文件了
     if not preview_path or not os.path.exists(preview_path):
         return "Preview file not found", 404
 

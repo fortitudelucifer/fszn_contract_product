@@ -126,13 +126,13 @@
         })();
     </script>
 
-{# ===== Office 文件：提示 + 下载 ===== #}
+{# ===== Office 文件：若有预览 PDF 就 iframe 显示，否则提示 + 下载 ===== #}
 {% elif is_office %}
     {% if preview_pdf_url %}
-        <h3>Office 文档预览（自动转换为 PDF）</h3>
+        <h3>Office 文档预览（已转换为 PDF）</h3>
         <p style="font-size: 13px; color:#666;">
-            文档已通过服务器上的 LibreOffice 自动转换为 PDF 进行预览。<br>
-            若排版或内容显示不完整，请下载原始文件用本地 Office 打开查看。
+            文档已通过服务器上的 LibreOffice 自动转换为 PDF 进行在线预览。<br>
+            若排版或内容显示不完整，请下载原始文件用本地 Office/WPS 打开查看。
         </p>
         <iframe src="{{ preview_pdf_url }}" style="width:100%; height:80vh; border:1px solid #ccc;"></iframe>
     {% else %}
@@ -147,7 +147,7 @@
                 下载并在本地打开
             </a>
         </p>
- {% endif %}
+    {% endif %}
 
 {# ===== CAD / 工程文件：提示 + 下载 ===== #}
 {% elif is_cad %}
