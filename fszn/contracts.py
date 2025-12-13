@@ -1936,47 +1936,33 @@ def preview_file_raw(contract_id, file_id):
             flash('你只能预览自己部门上传的文件')
             return redirect(url_for('contracts.manage_files', contract_id=contract.id))
 
-    # ===== 获取真实路径 =====
+    # ===== 注意：下面这些必须在 if/elif/else 之外（顶格缩进）=====
     file_path = file_service.get_file_path(contract, pf)
     if not os.path.exists(file_path):
         return "File not found", 404
 
-    # ===== 根据扩展名判断类型 =====
-    filename_for_ext = pf.original_filename or pf.stored_filename
-    ext = ''
-    if filename_for_ext and '.' in filename_for_ext:
-        ext = filename_for_ext.rsplit('.', 1)[1].lower()
+    filename_for_ext = pf.original_filename or pf.stored_filename or ""
+    ext = filename_for_ext.rsplit(".", 1)[-1].lower() if "." in filename_for_ext else ""
 
-    image_exts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']
-
-    # ===== A. PDF：用 send_file + 明确 application/pdf =====
+    # ---- 强制 PDF/图片的 MIME，且不加 download_name，避免任何 Content-Disposition 干扰 ----
     if ext == "pdf":
-        return send_file(
-            file_path,
-            mimetype="application/pdf",
-            as_attachment=False,  # 不作为附件下载 → 尽量 inline
-            download_name=pf.original_filename or pf.stored_filename,
-        )
+        resp = send_file(file_path, mimetype="application/pdf", as_attachment=False)
+        # 关键：彻底移除 Content-Disposition（有些环境会因为 filename 编码导致浏览器转下载）
+        resp.headers.pop("Content-Disposition", None)
+        return resp
 
-    # ===== 图片：让浏览器 inline 渲染 =====
-    if ext in image_exts:
+    if ext in ("png", "jpg", "jpeg", "gif", "bmp", "webp"):
         mime = f"image/{ext if ext != 'jpg' else 'jpeg'}"
-        return send_file(
-            file_path,
-            mimetype=mime,
-            as_attachment=False,
-            download_name=pf.original_filename or pf.stored_filename,
-        )
+        resp = send_file(file_path, mimetype=mime, as_attachment=False)
+        resp.headers.pop("Content-Disposition", None)
+        return resp
 
-    # ===== 其它类型：预览页其实不会用到 raw，但保留一个兜底 =====
-    mime, _ = mimetypes.guess_type(filename_for_ext or '')
+    # 兜底（一般不会用到）
+    mime, _ = mimetypes.guess_type(filename_for_ext)
     mime = mime or "application/octet-stream"
-    return send_file(
-        file_path,
-        mimetype=mime,
-        as_attachment=False,
-        download_name=pf.original_filename or pf.stored_filename
-    )
+    resp = send_file(file_path, mimetype=mime, as_attachment=False)
+    resp.headers.pop("Content-Disposition", None)
+    return resp
 
 
 # 删除文件（软删除+风险提示）
