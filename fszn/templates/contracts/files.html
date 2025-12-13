@@ -32,6 +32,46 @@
 </div>
 
 <h2>当前文件</h2>
+<h2>当前文件</h2>
+
+<form method="get" style="margin-bottom: 10px; border:1px solid #ccc; padding:8px;">
+    <strong>筛选条件：</strong>
+    <label style="margin-right: 10px;">
+        文件类型：
+        <select name="file_type">
+            <option value="" {% if not filter_file_type %}selected{% endif %}>全部</option>
+            <option value="contract" {% if filter_file_type=='contract' %}selected{% endif %}>合同</option>
+            <option value="tech" {% if filter_file_type=='tech' %}selected{% endif %}>技术文档</option>
+            <option value="drawing" {% if filter_file_type=='drawing' %}selected{% endif %}>图纸</option>
+            <option value="invoice" {% if filter_file_type=='invoice' %}selected{% endif %}>其它</option>
+        </select>
+    </label>
+
+    <label style="margin-right: 10px;">
+        公开状态：
+        <select name="is_public">
+            <option value="" {% if not filter_is_public %}selected{% endif %}>全部</option>
+            <option value="1" {% if filter_is_public=='1' %}selected{% endif %}>只看公开</option>
+            <option value="0" {% if filter_is_public=='0' %}selected{% endif %}>只看未公开</option>
+        </select>
+    </label>
+
+    {% if user and user.role in ['admin', 'boss'] %}
+    <label style="margin-right: 10px;">
+        <input type="checkbox" name="show_deleted" value="1"
+               {% if filter_show_deleted %}checked{% endif %}>
+        显示已删除文件
+    </label>
+    {% endif %}
+
+    <label style="margin-right: 10px;">
+        <input type="checkbox" name="latest_only" value="1"
+               {% if filter_latest_only %}checked{% endif %}>
+        只看最新版本
+    </label>
+
+    <button type="submit">筛选</button>
+</form>
 
   {% if files %}
 <table border="1" cellpadding="4" cellspacing="0">
@@ -43,7 +83,7 @@
             <th>类型</th>
             <th>版本</th>
             <th>作者</th>
-            <th>上传者</th>
+            <!--<th>上传者</th>-->
             <th>大小</th>
             <th>是否公开</th>
             <th>上传时间</th>
@@ -62,9 +102,14 @@
                 {% elif f.file_type == 'drawing' %}图纸
                 {% else %}其它{% endif %}
             </td>
-            <td>{{ f.version }}</td>
+            <td>
+                {{ f.version }}
+                {% if latest_ids and f.id in latest_ids %}
+                <span style="color: green; font-size: 12px;">（最新）</span>
+                {% endif %}
+            </td>
             <td>{{ f.author }}</td>
-            <td>{{ f.uploader.username if f.uploader else '' }}</td>
+            <!--<td>{{ f.uploader.username if f.uploader else '' }}</td>-->
             <td>{{ human_filesize(f.file_size) }}</td>
 
             <td>{{ '是' if f.is_public else '否' }}</td>
@@ -100,15 +145,19 @@
     1. 系统会自动根据以下规则生成文件名：<br>
     <code>客户公司_项目编号_合同编号_合同名称_上传日期_文件类型_文件原始名_版本号_作者.扩展名</code><br>
     2. 你只需要选择文件、选择文件类型、填写版本号（可选），作者将自动使用当前登录用户名。<br>
-    3. 建议尽量上传 PDF 或常见图片格式（PNG/JPG），单个文件大小不超过 {{ (config.MAX_CONTENT_LENGTH or 0) // (1024*1024) }} MB。<br>
+    3. 建议尽量上传 PDF 或常见图片格式（PNG/JPG），单个文件大小不超过 {{ (config.MAX_CONTENT_LENGTH or 0) // (1024*1024) }} MB，但也支持其它类型文件。<br>
 </div>
 
 <form method="post" enctype="multipart/form-data">
     <p>
         <label>
-            文件：
-            <input type="file" name="file">
+            选择文件（可多选）：
+            <input type="file" name="files" multiple>
         </label>
+    </p>
+    <p style="color: #666; font-size: 13px;">
+        可一次选择多个文件。<br>
+        多文件上传的 file_type / version / 公共字段将应用于所有文件。
     </p>
     <p>
         <label>

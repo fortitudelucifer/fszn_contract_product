@@ -24,6 +24,8 @@ ACTION_DELETE = "delete"
 ACTION_STATUS_CHANGE = "status_change"
 ACTION_UPLOAD = "upload"
 ACTION_RESOLVE = "resolve"
+ACTION_DOWNLOAD = "download"  # 新增：文件下载
+ACTION_RESTORE = "restore"    # 新增：恢复已删除文件
 
 
 def log_operation(

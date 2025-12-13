@@ -4,9 +4,7 @@ from __future__ import annotations
 from functools import wraps
 from datetime import datetime, date
 import os
-import csv
 from io import StringIO
-from flask_login import current_user
 from flask import (
     Blueprint, render_template, request,
     redirect, url_for, flash, session, send_from_directory, current_app, make_response
@@ -26,6 +24,8 @@ from .services.production_service import ProductionService
 from .services.acceptance_service import AcceptanceService
 from .services.feedback_service import FeedbackService
 from .services import get_notification_service
+from .services.file_service import FileService
+file_service = FileService()
 
 from .operation_log import (
     log_operation,
@@ -41,6 +41,8 @@ from .operation_log import (
     ACTION_STATUS_CHANGE,
     ACTION_UPLOAD,
     ACTION_RESOLVE,
+    ACTION_DOWNLOAD,  # ✅ 新增
+    ACTION_RESTORE,   # ✅ 新增
 )
 
 
@@ -94,26 +96,6 @@ def get_contract_status(contract: Contract):
 
 contracts_bp = Blueprint('contracts', __name__, url_prefix='/contracts')
 
-ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx', 'xls', 'xlsx'}
-
-
-# 不同角色允许上传的文件类型
-ROLE_ALLOWED_TYPES = {
-    # 你可以根据自己 User.role 的实际值调整这些 key
-    'admin': {'contract', 'tech', 'drawing', 'invoice', 'ticket'},
-    'boss': {'contract', 'tech', 'drawing', 'invoice', 'ticket'},
-    'software_engineer': {'drawing', 'tech'},
-    'mechanical_engineer': {'drawing', 'tech'},
-    'electrical_engineer': {'drawing', 'tech'},
-    'sales': {'contract', 'tech', 'ticket'},
-    'finance': {'invoice'},
-    'procurement': {'invoice'},
-    # 默认角色（找不到时）
-    'default': {'contract', 'tech', 'drawing', 'invoice', 'ticket'},
-}
-
-
-
 # 手工通知的事件类型列表（仅用于界面展示和日志记录）
 NOTIFICATION_EVENT_CHOICES = [
     ('CONTRACT_PROGRESS', '项目进度更新'),
@@ -125,80 +107,6 @@ NOTIFICATION_EVENT_CHOICES = [
 # 事件代码 → 中文名映射
 EVENT_CODE_TO_LABEL = {code: label for code, label in NOTIFICATION_EVENT_CHOICES}
 
-
-def allowed_file(filename: str) -> bool:
-    if not filename or '.' not in filename:
-        return False
-    ext = filename.rsplit('.', 1)[1].lower()
-    return ext in ALLOWED_EXTENSIONS
-
-
-def get_role_allowed_types(user: User):
-    role = (user.role or '').strip().lower() if user and user.role else ''
-    # 简单处理一下常见中文/英文角色映射可以在这里加
-    return ROLE_ALLOWED_TYPES.get(role, ROLE_ALLOWED_TYPES['default'])
-
-
-def sanitize_part(text: str) -> str:
-    """用于文件名中某一段的安全处理：去掉空格和特殊字符"""
-    if not text:
-        return ''
-    # 替换空格为下划线，去掉不适合出现在文件名中的字符
-    invalid = '\\/:*?"<>|'
-    for ch in invalid:
-        text = text.replace(ch, '')
-    text = text.replace(' ', '_')
-    return text
-
-
-# 文件类型在文件名中的中文展示
-FILE_TYPE_NAME_MAP = {
-    'contract': '合同',
-    'tech': '技术文档',
-    'drawing': '图纸',
-    'invoice': '其它',  # 现在前端下拉里“其它”用的就是 invoice
-}
-
-
-def generate_file_name(contract: Contract, file_type: str, version: str, author: str, original_filename: str) -> str:
-    """按照约定规则生成文件名：
-    客户公司_项目编号_合同编号_合同名称_上传日期_文件类型_文件原始名_版本号_作者.扩展名
-    """
-    # 拆出扩展名
-    if '.' in original_filename:
-        name_without_ext, ext_raw = original_filename.rsplit('.', 1)
-        ext = '.' + ext_raw.lower()
-    else:
-        name_without_ext = original_filename
-        ext = ''
-
-    company_name = sanitize_part(contract.company.name if contract.company else '')
-    project_code = sanitize_part(contract.project_code or '')
-    contract_number = sanitize_part(contract.contract_number or '')
-    contract_name = sanitize_part(contract.name or '')
-    today_str = datetime.utcnow().strftime('%Y%m%d')
-    file_type_label = FILE_TYPE_NAME_MAP.get(file_type, file_type)
-    file_type_part = sanitize_part(file_type_label)
-    original_name_part = sanitize_part(name_without_ext or 'NoFilename')
-    version_part = sanitize_part(version or 'V1')
-    author_part = sanitize_part(author or 'unknown')
-
-    parts = [
-        company_name or 'NoCompany',
-        project_code or 'NoProject',
-        contract_number or 'NoContractNo',
-        contract_name or 'NoName',
-        today_str,
-        file_type_part,
-        original_name_part,
-        version_part,
-        author_part,
-    ]
-    base = "_".join(parts)
-    # 长度太长时可以简单截断
-    if len(base) > 180:
-        base = base[:180]
-    return base + ext
 
 
 
@@ -1749,109 +1657,118 @@ def unresolve_feedback(contract_id, feedback_id):
 @contracts_bp.route('/<int:contract_id>/files', methods=['GET', 'POST'])
 @login_required
 def manage_files(contract_id):
-    """管理某个项目的文件：上传 / 列表 / 删除"""
+    contract = Contract.query.get_or_404(contract_id)
+
+    # 沿用 session 机制获取当前用户
     user_id = session.get('user_id')
     user = User.query.get(user_id) if user_id else None
 
-    contract = Contract.query.get_or_404(contract_id)
+    # ---- GET：列表 + 筛选 ----
+    if request.method == 'GET':
+        # 筛选条件
+        file_type = request.args.get("file_type") or ""
+        is_public_raw = request.args.get("is_public", "")
+        show_deleted = request.args.get("show_deleted") == "1"
+        latest_only_flag = request.args.get("latest_only") == "1"
 
-    # 只显示未删除的文件
-    files = (
-        ProjectFile.query
-        .filter_by(contract_id=contract.id, is_deleted=False)
-        .order_by(ProjectFile.created_at.asc(), ProjectFile.id.asc())
-        .all()
-    )
-
-    if request.method == 'POST':
-        if not user:
-            flash('请先登录')
-            return redirect(url_for('auth.login'))
-
-        uploaded_file = request.files.get('file')
-        file_type = (request.form.get('file_type') or '').strip()
-        version = (request.form.get('version') or '').strip() or 'V1'
-        is_public_raw = request.form.get('is_public')
-
-        if not uploaded_file or uploaded_file.filename == '':
-            flash('请选择要上传的文件')
-            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
-
-        # 对图纸 file_type='drawing' 放宽限制，不检查扩展名
-        if file_type != 'drawing' and not allowed_file(uploaded_file.filename):
-            flash('不支持的文件类型（非图纸文件请使用常见文档/图片格式）')
-            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
-
-        # 校验角色是否允许上传这种类型
-        allowed_types = get_role_allowed_types(user)
-        if file_type not in allowed_types:
-            flash('当前角色不允许上传此类型文件')
-            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
-
-        # 文件是否公开：只允许合同/技术文档可公开
-        is_public = False
-        if is_public_raw == 'y' and file_type in ('contract', 'tech'):
+        # is_public: "" → 不筛选；"1" → True；"0" → False
+        if is_public_raw == "1":
             is_public = True
+        elif is_public_raw == "0":
+            is_public = False
+        else:
+            is_public = None
 
-        original_filename = uploaded_file.filename
-        author = user.username  # 如果你实际字段叫 name，就改成 user.name
-        stored_filename = generate_file_name(
-            contract, file_type, version, author, original_filename
+        # 先查出所有文件（用于“全部版本”列表）
+        all_files = file_service.list_files_for_user(
+            contract=contract,
+            user=user,
+            file_type=file_type or None,
+            is_public=is_public,
+            include_deleted=show_deleted,
+            latest_only=False,
         )
 
-        upload_folder = current_app.config['UPLOAD_FOLDER']
-        os.makedirs(upload_folder, exist_ok=True)
-        filepath = os.path.join(upload_folder, stored_filename)
+        # 再查出“每组最新版本”的集合，用于：
+        # 1）latest_only 模式列表
+        # 2）在模板中高亮“最新版本”
+        latest_files = file_service.list_files_for_user(
+            contract=contract,
+            user=user,
+            file_type=file_type or None,
+            is_public=is_public,
+            include_deleted=show_deleted,
+            latest_only=True,
+        )
+        latest_ids = {f.id for f in latest_files}
 
-        uploaded_file.save(filepath)
+        # 根据 latest_only_flag 决定给模板的 files 是全部还是只保留最新版本
+        if latest_only_flag:
+            files = [f for f in all_files if f.id in latest_ids]
+        else:
+            files = all_files
 
-        file_size = os.path.getsize(filepath)
-        content_type = uploaded_file.mimetype
+        return render_template(
+            "contracts/files.html",
+            contract=contract,
+            user=user,  # 传给模板，用于控制“已删除可见”等权限
+            files=files,
+            latest_ids=latest_ids,
+            # 把当前筛选条件回传给模板，用于回显
+            filter_file_type=file_type,
+            filter_is_public=is_public_raw,
+            filter_show_deleted=show_deleted,
+            filter_latest_only=latest_only_flag,
+        )
 
-        pf = ProjectFile(
-            contract_id=contract.id,
-            uploader_id=user.id,
+
+    # ---- POST：上传（兼容单文件 & 未来多文件） ----
+    # 先尝试拿多文件
+    files = request.files.getlist("files")
+
+    # 如果前端还是老模板（只有 name="file"），做个兼容
+    if not files or (len(files) == 1 and not files[0].filename):
+        single = request.files.get("file")
+        if single and single.filename:
+            files = [single]
+
+    if not files:
+        flash("请选择要上传的文件", "error")
+        return redirect(url_for("contracts.manage_files", contract_id=contract.id))
+
+    if not user:
+        flash("请先登录后再上传文件", "error")
+        return redirect(url_for("auth.login"))
+
+    file_type = request.form.get("file_type")
+    if not file_type:
+        flash("请选择文件类型", "error")
+        return redirect(url_for("contracts.manage_files", contract_id=contract.id))
+
+    version = request.form.get("version", "").strip() or "V1"
+    is_public = bool(request.form.get("is_public"))
+    author = request.form.get("author") or (user.real_name or user.username)
+
+    try:
+        saved = file_service.save_multiple_files(
+            contract=contract,
+            user=user,
+            files=files,
             file_type=file_type,
             version=version,
-            author=author,
-            original_filename=original_filename,
-            stored_filename=stored_filename,
-            content_type=content_type,
-            file_size=file_size,
             is_public=is_public,
-            owner_role=user.role,
+            author=author,
         )
+    except ValueError as e:
+        flash(str(e), "error")
+        return redirect(url_for("contracts.manage_files", contract_id=contract.id))
+    except PermissionError as e:
+        flash(str(e), "error")
+        return redirect(url_for("contracts.manage_files", contract_id=contract.id))
 
-        db.session.add(pf)
-        db.session.commit()
+    flash(f"成功上传 {len(saved)} 个文件", "success")
+    return redirect(url_for("contracts.manage_files", contract_id=contract.id))
 
-        # 操作日志：上传文件
-        log_operation(
-            operator=user,
-            contract_id=contract.id,
-            object_type=OBJECT_TYPE_FILE,
-            object_id=pf.id,
-            action=ACTION_UPLOAD,
-            new_data={
-                "file_type": pf.file_type,
-                "version": pf.version,
-                "original_filename": pf.original_filename,
-                "stored_filename": pf.stored_filename,
-                "is_public": pf.is_public,
-            },
-            request=request,
-        )
-
-        flash('文件上传成功')
-        return redirect(url_for('contracts.manage_files', contract_id=contract.id))
-
-    # GET：展示列表 & 上传表单
-    return render_template(
-        'contracts/files.html',
-        user=user,
-        contract=contract,
-        files=files,
-    )
 
 
 # 下载文件（权限检查）
@@ -1869,7 +1786,6 @@ def download_file(contract_id, file_id):
         is_deleted=False
     ).first_or_404()
 
-    # 权限：简单版
     # - 管理员 / 老板 / 软件工程师：可以下载所有
     # - 其它员工：只能下载 owner_role == 自己 role 的文件
     # - 客户角色：只能下载 is_public=True 且 file_type in ('contract', 'tech')
@@ -1887,13 +1803,40 @@ def download_file(contract_id, file_id):
             flash('你只能下载自己部门上传的文件')
             return redirect(url_for('contracts.manage_files', contract_id=contract.id))
 
+    # ========= ✅ 新增：下载日志 =========
+    log_operation(
+        operator=user,
+        contract_id=contract.id,
+        object_type=OBJECT_TYPE_FILE,
+        object_id=pf.id,
+        action=ACTION_DOWNLOAD,
+        old_data=None,
+        new_data={
+            "download": True,
+            "file_type": pf.file_type,
+            "version": pf.version,
+            "original_filename": pf.original_filename,
+            "stored_filename": pf.stored_filename,
+        },
+        request=request,
+    )
+
+    # ========= ✅ 新增：下载文件名策略 =========
+    # 客户：用原始文件名（没有就退回 stored_filename）
+    # 内部：统一用系统生成名，方便追溯
+    if role == 'customer':
+        download_name = pf.original_filename or pf.stored_filename
+    else:
+        download_name = pf.stored_filename
+
     upload_folder = current_app.config['UPLOAD_FOLDER']
     return send_from_directory(
         upload_folder,
         pf.stored_filename,
         as_attachment=True,
-        download_name=pf.stored_filename #  pf.original_filename 用原始文件名下载
+        download_name=download_name,
     )
+
 
 
 # 删除文件（软删除+风险提示）
@@ -1942,4 +1885,96 @@ def delete_file(contract_id, file_id):
     )
 
     flash('文件已标记为删除（普通用户将无法再访问）')
+    return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+
+@contracts_bp.route('/<int:contract_id>/files/<int:file_id>/restore', methods=['POST'])
+@login_required
+def restore_file(contract_id, file_id):
+    """恢复被软删除的文件：仅 admin / boss 允许"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+    pf = ProjectFile.query.filter_by(
+        id=file_id,
+        contract_id=contract.id,
+    ).first_or_404()
+
+    role = (user.role or '').strip().lower() if user and user.role else ''
+
+    # 只允许管理员 / 老板 恢复
+    if role not in ('admin', 'boss'):
+        flash('你没有权限恢复此文件')
+        return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+
+    if not pf.is_deleted:
+        flash('该文件当前未被删除，无需恢复')
+        return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+
+    old_data = {
+        "is_deleted": pf.is_deleted,
+    }
+
+    pf.is_deleted = False
+    db.session.commit()
+
+    # 操作日志：恢复文件
+    log_operation(
+        operator=user,
+        contract_id=contract.id,
+        object_type=OBJECT_TYPE_FILE,
+        object_id=pf.id,
+        action=ACTION_RESTORE,   # ✅ 使用刚才新增的动作
+        old_data=old_data,
+        new_data={"is_deleted": False},
+        request=request,
+    )
+
+    flash('文件已恢复')
+    return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+
+@contracts_bp.route('/<int:contract_id>/files/<int:file_id>/set_public', methods=['POST'])
+@login_required
+def set_public(contract_id, file_id):
+    """设置文件公开 / 取消公开：仅 admin / boss / sales 允许"""
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+    pf = ProjectFile.query.filter_by(
+        id=file_id,
+        contract_id=contract.id,
+        is_deleted=False,
+    ).first_or_404()
+
+    role = (user.role or '').strip().lower() if user and user.role else ''
+
+    if role not in ('admin', 'boss', 'sales'):
+        flash('你没有权限修改此文件的公开状态')
+        return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+
+    is_public_raw = request.form.get('is_public', '')
+    # 这里约定：'1' 或 'true' 视为公开，其它视为不公开
+    is_public = str(is_public_raw).lower() in ('1', 'true', 'yes', 'on')
+
+    old_data = {
+        "is_public": pf.is_public,
+    }
+
+    pf.is_public = is_public
+    db.session.commit()
+
+    # 操作日志：修改公开状态，沿用 ACTION_UPDATE
+    log_operation(
+        operator=user,
+        contract_id=contract.id,
+        object_type=OBJECT_TYPE_FILE,
+        object_id=pf.id,
+        action=ACTION_UPDATE,
+        old_data=old_data,
+        new_data={"is_public": is_public},
+        request=request,
+    )
+
+    flash('文件公开状态已更新')
     return redirect(url_for('contracts.manage_files', contract_id=contract.id))
