@@ -7,7 +7,7 @@ import os
 from io import StringIO
 from flask import (
     Blueprint, render_template, request,
-    redirect, url_for, flash, session, send_from_directory, current_app, make_response
+    redirect, url_for, flash, session, send_from_directory, current_app, make_response, Response
 )
 
 from flask import send_file
@@ -1936,29 +1936,45 @@ def preview_file_raw(contract_id, file_id):
             flash('你只能预览自己部门上传的文件')
             return redirect(url_for('contracts.manage_files', contract_id=contract.id))
 
-    # 用 FileService 计算真实路径，兼容分层目录
+    # ===== 获取真实路径 =====
     file_path = file_service.get_file_path(contract, pf)
+    if not os.path.exists(file_path):
+        return "File not found", 404
 
-    # 扩展名
+    # ===== 根据扩展名判断类型 =====
     filename_for_ext = pf.original_filename or pf.stored_filename
     ext = ''
     if filename_for_ext and '.' in filename_for_ext:
         ext = filename_for_ext.rsplit('.', 1)[1].lower()
 
-    mime, _ = mimetypes.guess_type(file_path)
-    mime = mime or "application/octet-stream"
+    image_exts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']
 
-    # 对 PDF 和常见图片强制设置标准类型
-    if ext == 'pdf':
-        mime = "application/pdf"
-    elif ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']:
+    # ===== A. PDF：用 send_file + 明确 application/pdf =====
+    if ext == "pdf":
+        return send_file(
+            file_path,
+            mimetype="application/pdf",
+            as_attachment=False,  # 不作为附件下载 → 尽量 inline
+            download_name=pf.original_filename or pf.stored_filename,
+        )
+
+    # ===== 图片：让浏览器 inline 渲染 =====
+    if ext in image_exts:
         mime = f"image/{ext if ext != 'jpg' else 'jpeg'}"
+        return send_file(
+            file_path,
+            mimetype=mime,
+            as_attachment=False,
+            download_name=pf.original_filename or pf.stored_filename,
+        )
 
-    # as_attachment=False：让浏览器尽量 inline 渲染（PDF/图片等）
+    # ===== 其它类型：预览页其实不会用到 raw，但保留一个兜底 =====
+    mime, _ = mimetypes.guess_type(filename_for_ext or '')
+    mime = mime or "application/octet-stream"
     return send_file(
         file_path,
         mimetype=mime,
-        as_attachment=False,   # 关键：允许 inline 渲染
+        as_attachment=False,
         download_name=pf.original_filename or pf.stored_filename
     )
 
