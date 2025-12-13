@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+
+{% block title %}预览文件 - {{ file.original_filename or file.stored_filename }}{% endblock %}
+
+{% block content %}
+<h1>文件预览</h1>
+
+<p>
+    <strong>项目编号：</strong>{{ contract.project_code }}<br>
+    <strong>合同名称：</strong>{{ contract.name }}<br>
+    <strong>文件类型：</strong>
+    {% if file.file_type == 'contract' %}合同
+    {% elif file.file_type == 'tech' %}技术文档
+    {% elif file.file_type == 'drawing' %}图纸
+    {% else %}其它{% endif %}
+    <br>
+    <strong>原始文件名：</strong>{{ file.original_filename }}<br>
+    <strong>系统文件名：</strong>{{ file.stored_filename }}<br>
+    <strong>版本：</strong>{{ file.version }}<br>
+</p>
+
+<p>
+    <a href="{{ url_for('contracts.manage_files', contract_id=contract.id) }}">返回文件列表</a>
+    |
+    <a href="{{ url_for('contracts.download_file', contract_id=contract.id, file_id=file.id) }}">下载文件</a>
+</p>
+
+<hr>
+
+{# ===== PDF 预览 ===== #}
+{% if is_pdf %}
+    <h3>PDF 预览</h3>
+    <p style="font-size: 13px; color:#666;">
+        使用浏览器自带的 PDF 查看器进行缩放、搜索、打印等操作。
+    </p>
+    <iframe src="{{ raw_url }}" style="width:100%; height:80vh; border:1px solid #ccc;"></iframe>
+
+{# ===== 图片预览（带放大/缩小/平移） ===== #}
+{% elif is_image %}
+    <h3>图片预览</h3>
+    <p style="font-size: 13px; color:#666;">
+        鼠标滚轮缩放，按住左键拖动可平移查看细节。
+    </p>
+
+    <style>
+        #imgPreviewWrapper {
+            width: 100%;
+            height: 80vh;
+            border: 1px solid #ccc;
+            overflow: hidden;
+            position: relative;
+            background: #111;
+            cursor: grab;
+        }
+        #imgPreviewWrapper.dragging {
+            cursor: grabbing;
+        }
+        #previewImage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: center center;
+            max-width: none;  /* 允许放大超过容器 */
+        }
+    </style>
+
+    <div id="imgPreviewWrapper">
+        <img id="previewImage" src="{{ raw_url }}" alt="预览图片">
+    </div>
+
+    <script>
+        (function () {
+            const wrapper = document.getElementById('imgPreviewWrapper');
+            const img = document.getElementById('previewImage');
+
+            let scale = 1;
+            let posX = 0;
+            let posY = 0;
+            let isDragging = false;
+            let startX = 0;
+            let startY = 0;
+
+            function updateTransform() {
+                img.style.transform = `translate(${posX}px, ${posY}px) scale(${scale}) translate(-50%, -50%)`;
+            }
+
+            // 初始化：让图片居中
+            window.addEventListener('load', function () {
+                posX = 0;
+                posY = 0;
+                scale = 1;
+                updateTransform();
+            });
+
+            // 滚轮缩放
+            wrapper.addEventListener('wheel', function (e) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                let newScale = scale + delta;
+                if (newScale < 0.1) newScale = 0.1;
+                if (newScale > 10) newScale = 10;
+                scale = newScale;
+                updateTransform();
+            }, { passive: false });
+
+            // 鼠标拖动平移
+            wrapper.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+                isDragging = true;
+                wrapper.classList.add('dragging');
+                startX = e.clientX - posX;
+                startY = e.clientY - posY;
+            });
+
+            document.addEventListener('mousemove', function (e) {
+                if (!isDragging) return;
+                posX = e.clientX - startX;
+                posY = e.clientY - startY;
+                updateTransform();
+            });
+
+            document.addEventListener('mouseup', function () {
+                isDragging = false;
+                wrapper.classList.remove('dragging');
+            });
+        })();
+    </script>
+
+{# ===== Office 文件：提示 + 下载 ===== #}
+{% elif is_office %}
+    <h3>Office 文档预览</h3>
+    <p style="font-size: 13px; color:#666;">
+        当前系统暂未集成在线 Word/Excel 渲染组件。<br>
+        请点击下面按钮下载后，使用本地 Office 或 WPS 等软件打开查看。
+    </p>
+    <p>
+        <a href="{{ url_for('contracts.download_file', contract_id=contract.id, file_id=file.id) }}"
+           style="display:inline-block; padding:8px 16px; background:#007bff; color:#fff; border-radius:4px; text-decoration:none;">
+            下载并在本地打开
+        </a>
+    </p>
+
+{# ===== CAD / 工程文件：提示 + 下载 ===== #}
+{% elif is_cad %}
+    <h3>工程图/机械制图预览</h3>
+    <p style="font-size: 13px; color:#666;">
+        SolidWorks / 三菱 / 西门子 等工程文件需要专业软件才能查看。<br>
+        当前浏览器无法直接渲染此类格式，请下载后使用对应工程软件打开。
+    </p>
+    <p>
+        <a href="{{ url_for('contracts.download_file', contract_id=contract.id, file_id=file.id) }}"
+           style="display:inline-block; padding:8px 16px; background:#007bff; color:#fff; border-radius:4px; text-decoration:none;">
+            下载工程文件
+        </a>
+    </p>
+
+{# ===== 其他未知格式 ===== #}
+{% else %}
+    <h3>暂不支持在线预览此格式</h3>
+    <p style="font-size: 13px; color:#666;">
+        当前文件格式浏览器无法直接预览，请下载后使用合适的软件打开。
+    </p>
+    <p>
+        <a href="{{ url_for('contracts.download_file', contract_id=contract.id, file_id=file.id) }}"
+           style="display:inline-block; padding:8px 16px; background:#007bff; color:#fff; border-radius:4px; text-decoration:none;">
+            下载文件
+        </a>
+    </p>
+{% endif %}
+
+{% endblock %}

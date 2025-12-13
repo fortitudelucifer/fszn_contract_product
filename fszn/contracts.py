@@ -10,6 +10,9 @@ from flask import (
     redirect, url_for, flash, session, send_from_directory, current_app, make_response
 )
 
+from flask import send_file
+import mimetypes
+
 from . import db
 from .auth import login_required, staff_required
 from .models import (
@@ -1837,6 +1840,127 @@ def download_file(contract_id, file_id):
         download_name=download_name,
     )
 
+#  
+
+@contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview')
+@login_required
+def preview_file(contract_id, file_id):
+    """文件预览页：PDF/图片内联预览，Office/CAD 显示提示 + 下载按钮"""
+
+    # 拿当前用户
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+    pf = ProjectFile.query.filter_by(
+        id=file_id,
+        contract_id=contract.id,
+        is_deleted=False
+    ).first_or_404()
+
+    # ===== 权限校验（复用下载逻辑） =====
+    role = (user.role or '').strip().lower() if user and user.role else ''
+
+    if role in ('admin', 'boss', 'software_engineer'):
+        pass
+    elif role == 'customer':
+        if not (pf.is_public and pf.file_type in ('contract', 'tech')):
+            flash('你没有权限预览此文件')
+            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+    else:
+        if pf.owner_role and pf.owner_role != user.role:
+            flash('你只能预览自己部门上传的文件')
+            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+
+    # ===== 根据扩展名判断类型 =====
+    filename_for_ext = pf.original_filename or pf.stored_filename
+    ext = ''
+    if filename_for_ext and '.' in filename_for_ext:
+        ext = filename_for_ext.rsplit('.', 1)[1].lower()
+
+    # 预览类型标志
+    image_exts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']
+    office_exts = ['doc', 'docx', 'xls', 'xlsx']
+    cad_exts = ['dwg', 'dxf', 'sldprt', 'sldasm', 'slddrw']
+
+    is_pdf = (ext == 'pdf')
+    is_image = (ext in image_exts)
+    is_office = (ext in office_exts)
+    is_cad = (ext in cad_exts)
+
+    # 原始文件内联访问 URL（给 iframe/img 用）
+    raw_url = url_for(
+        'contracts.preview_file_raw',
+        contract_id=contract.id,
+        file_id=pf.id,
+    )
+
+    return render_template(
+        'contracts/file_preview.html',
+        contract=contract,
+        file=pf,
+        raw_url=raw_url,
+        is_pdf=is_pdf,
+        is_image=is_image,
+        is_office=is_office,
+        is_cad=is_cad,
+    )
+
+
+@contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview/raw')
+@login_required
+def preview_file_raw(contract_id, file_id):
+    """返回文件本体，用于 iframe/img 内联展示"""
+
+    user_id = session.get('user_id')
+    user = User.query.get(user_id) if user_id else None
+
+    contract = Contract.query.get_or_404(contract_id)
+    pf = ProjectFile.query.filter_by(
+        id=file_id,
+        contract_id=contract.id,
+        is_deleted=False
+    ).first_or_404()
+
+    # 和预览页相同的权限逻辑
+    role = (user.role or '').strip().lower() if user and user.role else ''
+
+    if role in ('admin', 'boss', 'software_engineer'):
+        pass
+    elif role == 'customer':
+        if not (pf.is_public and pf.file_type in ('contract', 'tech')):
+            flash('你没有权限预览此文件')
+            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+    else:
+        if pf.owner_role and pf.owner_role != user.role:
+            flash('你只能预览自己部门上传的文件')
+            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+
+    # 用 FileService 计算真实路径，兼容分层目录
+    file_path = file_service.get_file_path(contract, pf)
+
+    # 扩展名
+    filename_for_ext = pf.original_filename or pf.stored_filename
+    ext = ''
+    if filename_for_ext and '.' in filename_for_ext:
+        ext = filename_for_ext.rsplit('.', 1)[1].lower()
+
+    mime, _ = mimetypes.guess_type(file_path)
+    mime = mime or "application/octet-stream"
+
+    # 对 PDF 和常见图片强制设置标准类型
+    if ext == 'pdf':
+        mime = "application/pdf"
+    elif ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']:
+        mime = f"image/{ext if ext != 'jpg' else 'jpeg'}"
+
+    # as_attachment=False：让浏览器尽量 inline 渲染（PDF/图片等）
+    return send_file(
+        file_path,
+        mimetype=mime,
+        as_attachment=False,   # 关键：允许 inline 渲染
+        download_name=pf.original_filename or pf.stored_filename
+    )
 
 
 # 删除文件（软删除+风险提示）
