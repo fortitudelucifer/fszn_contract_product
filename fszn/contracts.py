@@ -1869,10 +1869,10 @@ def preview_file(contract_id, file_id):
         if not (pf.is_public and pf.file_type in ('contract', 'tech')):
             flash('你没有权限预览此文件')
             return redirect(url_for('contracts.manage_files', contract_id=contract.id))
-    else:
-        if pf.owner_role and pf.owner_role != user.role:
-            flash('你只能预览自己部门上传的文件')
-            return redirect(url_for('contracts.manage_files', contract_id=contract.id))
+    # else:
+    #     if pf.owner_role and pf.owner_role != user.role:
+    #         flash('你只能预览自己部门上传的文件')
+    #         return redirect(url_for('contracts.manage_files', contract_id=contract.id))
 
     # ===== 根据扩展名判断类型 =====
     filename_for_ext = pf.original_filename or pf.stored_filename or ""

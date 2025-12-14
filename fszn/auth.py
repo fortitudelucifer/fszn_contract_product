@@ -53,6 +53,7 @@ def staff_required(view):
 def register():
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip()
+        real_name=(request.form.get('real_name') or '').strip()
         email = (request.form.get('email') or '').strip()
 
         # 新增：可选手机号和微信号
