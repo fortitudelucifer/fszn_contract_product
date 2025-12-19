@@ -19,9 +19,9 @@ class Config:
 
     # ===== 钉钉群机器人配置 =====
     # 钉钉机器人 webhook（完整 URL）
-    DINGTALK_WEBHOOK_URL = "https://oapi.dingtalk.com/robot/send?access_token=a5592eead55e99fb70ed18bda20dd45bad794240110188f7b69fa80cfed27315"
+    DINGTALK_WEBHOOK_URL = "https://oapi.dingtalk.com/robot/send?access_token=47bbc76aca33f531da97662fc247bb91f73ff147b630da0b7b76186f143404a7"
     # 如果你在钉钉机器人里启用了“加签”，在这里填入 secret；没启用就留空
-    DINGTALK_SECRET = "SECbd13bbc0a8fa94b4bb30b09b1822f5dcc62ad1610896c2446095f53007297bc0"
+    DINGTALK_SECRET = "SEC7280c04108b303c7e8a9fc01080312a3fd7d4b8dd8d2bb15d8848704d73b9f56"
 
     # ===== 企业微信（WeCom）群机器人配置 =====
     # 企业微信群机器人 webhook（完整 URL）

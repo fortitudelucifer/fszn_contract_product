@@ -50,6 +50,23 @@ from .operation_log import (
     ACTION_RESTORE,   # ✅ 新增
 )
 
+def normalize_role(role: str) -> str:
+    """统一角色字符串，避免 software engineer / 软件工程师 等写法导致权限误判"""
+    r = (role or "").strip().lower()
+    r = r.replace(" ", "_")  # software engineer -> software_engineer
+
+    # 中文/别名映射（按你系统实际会出现的写法补充）
+    mapping = {
+        "软件工程师": "software_engineer",
+        "管理员": "admin",
+        "老板": "boss",
+        "客户": "customer",
+        "销售": "sales",
+        "电气工程师": 'electrical_engineer',
+        "机械工程师": 'mechanical_engineer',
+    }
+    return mapping.get(r, r)
+
 
 # ====== 状态计算辅助函数（重写版：只看生产 / 验收 / 反馈） ======
 def get_contract_status(contract: Contract):
@@ -1861,7 +1878,9 @@ def preview_file(contract_id, file_id):
     ).first_or_404()
 
     # ===== 权限校验（复用下载逻辑） =====
-    role = (user.role or '').strip().lower() if user and user.role else ''
+    # role = (user.role or '').strip().lower() if user and user.role else ''
+    role = normalize_role(user.role) if user and user.role else ''
+
 
     if role in ('admin', 'boss', 'software_engineer'):
         pass
@@ -1931,15 +1950,17 @@ def preview_file_raw(contract_id, file_id):
     ).first_or_404()
 
     # 权限判断同 preview
-    role = (user.role or '').strip().lower() if user and user.role else ''
+    # role = (user.role or '').strip().lower() if user and user.role else ''
+    role = normalize_role(user.role) if user and user.role else ''
+
     if role in ('admin', 'boss', 'software_engineer'):
         pass
     elif role == 'customer':
         if not (pf.is_public and pf.file_type in ('contract', 'tech')):
             return "Unauthorized", 403
-    else:
-        if pf.owner_role and pf.owner_role != user.role:
-            return "Unauthorized", 403
+    # else:
+    #     if pf.owner_role and pf.owner_role != user.role:
+    #         return "Unauthorized", 403
 
     file_path = file_service.get_file_path(contract, pf)
     if not os.path.exists(file_path):

@@ -24,8 +24,8 @@ from ..operation_log import (
 # 常量与工具函数（模块级，避免循环引用问题）
 # -----------------------------------------
 
-ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "doc", "docx", "xls", "xlsx"}
-DRAWING_EXTENSIONS = {"jpg", "jpeg", "png", "pdf", "dwg", "dxf", "sldprt", "sldasm"}
+ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "doc", "docx", "xls", "xlsx","ppt", "pptx", "mrc2"}
+DRAWING_EXTENSIONS = {"jpg", "jpeg", "png", "pdf", "dwg", "dxf", "sldprt", "sldasm", "doc", "docx", "xls", "xlsx","ppt", "pptx", "mrc2"}
 
 ROLE_ALLOWED_TYPES = {
     # 你可以根据自己 User.role 的实际值调整这些 key
@@ -48,16 +48,27 @@ FILE_TYPE_NAME_MAP = {
 }
 
 
-def allowed_file(filename: str, file_type: Optional[str] = None) -> bool:
-    """检查扩展名是否允许；图纸类文件使用更宽松的扩展名集合"""
+def allowed_file(filename: str, file_type: str | None = None) -> bool:
+    """
+    校验文件扩展名是否合法
+
+    - file_type 为 None：使用通用 ALLOWED_EXTENSIONS
+    - file_type == 'drawing'：允许工程图扩展名（DRAWING_EXTENSIONS）
+    - 其他 file_type：仍走通用 ALLOWED_EXTENSIONS
+    """
+
     if not filename or "." not in filename:
         return False
-    ext = filename.rsplit(".", 1)[1].lower()
 
+    ext = filename.rsplit(".", 1)[-1].lower()
+
+    # 图纸类文件，扩展名更宽松
     if file_type == "drawing":
         return ext in DRAWING_EXTENSIONS
 
+    # 默认：通用文件类型
     return ext in ALLOWED_EXTENSIONS
+
 
 
 def get_role_allowed_types(user: Optional[User]):

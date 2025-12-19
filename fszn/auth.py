@@ -27,7 +27,7 @@ INTERNAL_ROLES = {
     'sales',
     'service',
     'procurements',
-    'finance',
+    # 'finance',
 }
 
 def staff_required(view):
