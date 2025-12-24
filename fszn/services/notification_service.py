@@ -249,7 +249,7 @@ class WeComRobotNotificationService:
         if extra_message:
             lines.append(f"> 说明：{extra_message}")
         if contract_url:
-            lines.append(f"[点击查看合同]({contract_url})")
+            lines.append(f"合同详情：{contract_url}")
 
         content = "\n".join(lines)
 
