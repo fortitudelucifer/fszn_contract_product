@@ -231,25 +231,43 @@ class WeComRobotNotificationService:
             )
             return
 
+        event_label = (
+            params.get("event_label")
+            or params.get("event_code")
+            or template_code
+        )
+        company = params.get("company_name") or ""
+        project_code = params.get("project_code") or ""
         contract_number = params.get("contract_number") or ""
         contract_name = params.get("contract_name") or ""
-        event_code = params.get("event_code") or template_code
         operator_name = params.get("operator_name") or ""
-        extra_message = params.get("message") or ""
+        message = params.get("message") or ""
         contract_url = params.get("contract_url") or ""
 
         # 用 markdown 格式，让企业微信里看起来更友好
-        lines = [f"**合同事件：{event_code}**"]
+        lines = []
+        lines.append(f"合同事件：{event_label}")
+
+        if company:
+            lines.append(f"所属公司：{company}")
+
+        if project_code: 
+            lines.append(f">项目编号：{project_code}")
+
         if contract_number:
-            lines.append(f"> 合同编号：{contract_number}")
+            lines.append(f"合同编号：{contract_number}")
+
         if contract_name:
-            lines.append(f"> 合同名称：{contract_name}")
+            lines.append(f"合同名称：{contract_name}")
+
         if operator_name:
-            lines.append(f"> 操作人：{operator_name}")
-        if extra_message:
-            lines.append(f"> 说明：{extra_message}")
+            lines.append(f"操作人：{operator_name}")
+
+        if message:
+            lines.append(f"说明：{message}")
+
         if contract_url:
-            lines.append(f"合同详情：{contract_url}")
+            lines.append(f"\n[点击查看合同]({contract_url})")
 
         content = "\n".join(lines)
 

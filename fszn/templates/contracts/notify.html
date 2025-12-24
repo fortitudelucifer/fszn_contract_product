@@ -24,19 +24,19 @@
             <!-- 钉钉群机器人 -->
             <option value="ding"
                 {% if default_channel == 'ding' %}selected{% endif %}>
-                钉钉
+                钉钉-群机器人
             </option>
 
             <!-- 企业微信（群机器人，对应 channel='wechat_corp'） -->
             <option value="wechat_corp"
                 {% if default_channel == 'wechat_corp' %}selected{% endif %}>
-                企业微信
+                企业微信-机器人
             </option>
 
             <!-- 个人微信（对应用户的 wechat 字段） -->
             <option value="wechat"
                 {% if default_channel == 'wechat' %}selected{% endif %}>
-                微信
+                个人微信-预留
             </option>
 
             <!-- 手机短信 -->

@@ -596,7 +596,7 @@ def notify_contract(contract_id: int):
         'contracts/notify.html',
         user=user,
         contract=contract,
-        default_channel='ding',  # 默认通道，也可修改为wechat_corp / ding / email / sms
+        default_channel='wechat_corp',  # 默认通道，也可修改为wechat_corp / ding / email / sms
         default_template_code='CONTRACT_EVENT',
         default_target='',
         default_message=f'项目 {contract.project_code} - {contract.name} 的进度提醒',
@@ -1811,7 +1811,7 @@ def download_file(contract_id, file_id):
     # - 管理员 / 老板 / 软件工程师：可以下载所有
     # - 其它员工：只能下载 owner_role == 自己 role 的文件
     # - 客户角色：只能下载 is_public=True 且 file_type in ('contract', 'tech')
-    role = (user.role or '').strip().lower() if user and user.role else ''
+    role = normalize_role(user.role) if user and user.role else ''
 
     if role in ('admin', 'boss', 'software_engineer'):
         pass  # 全部允许
@@ -1851,15 +1851,20 @@ def download_file(contract_id, file_id):
     else:
         download_name = pf.stored_filename
 
-    upload_folder = current_app.config['UPLOAD_FOLDER']
-    return send_from_directory(
-        upload_folder,
-        pf.stored_filename,
-        as_attachment=True,
-        download_name=download_name,
-    )
+    file_path = file_service.get_file_path(contract, pf)
 
-#  
+    # 双重保险：检查物理文件是否存在
+    if not os.path.exists(file_path):
+        # 可以在这里加个日志
+        # current_app.logger.error(f"File missing: {file_path}")
+        return "Physical file not found on server", 404
+
+    # 使用 send_file 发送绝对路径的文件
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name=download_name
+    )
 
 @contracts_bp.route('/<int:contract_id>/files/<int:file_id>/preview')
 @login_required
@@ -2006,7 +2011,7 @@ def preview_converted_file_raw(contract_id, file_id):
     ).first_or_404()
 
     # 权限同 preview / download
-    role = (user.role or '').strip().lower() if user and user.role else ''
+    role = normalize_role(user.role) if user and user.role else ''
     if role in ('admin', 'boss', 'software_engineer'):
         pass
     elif role == 'customer':
