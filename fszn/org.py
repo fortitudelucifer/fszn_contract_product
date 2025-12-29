@@ -94,11 +94,16 @@ def list_persons():
         .all()
     )
 
+    # 获取所有用户并构建 {real_name: phone} 映射
+    all_users = User.query.with_entities(User.real_name, User.phone).all()
+    user_phone_map = {u.real_name: u.phone for u in all_users if u.real_name}
+
     return render_template(
         'org/persons.html',
         user=user,
         persons=persons,
         departments=departments,
+        user_phone_map=user_phone_map,
     )
 
 # 编辑人员

@@ -7,7 +7,9 @@
     <form method="post" action="{{ url_for('contracts.edit_contract', contract_id=contract.id) }}">
         <div style="margin-bottom: 8px;">
             <label>客户公司：</label>
-            <span>{{ company.name if company else '' }}</span>
+            <input type="text" name="company_name"
+                   value="{{ company.name if company else '' }}"
+                   style="width: 100%;">
         </div>
 
         <div style="margin-bottom: 8px;">

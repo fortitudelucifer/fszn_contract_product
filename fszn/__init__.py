@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
-from flask import Flask, render_template, session, redirect, url_for
+from flask import Flask, render_template, session, redirect, url_for, request, abort
 
 from flask_sqlalchemy import SQLAlchemy
 
@@ -9,6 +9,43 @@ db = SQLAlchemy()
 
 def create_app():
     app = Flask(__name__)
+
+    @app.before_request
+    def restrict_customer_access():
+        # 1. 放行静态资源（CSS/JS），否则页面会乱码
+        if request.endpoint and request.endpoint.startswith('static'):
+            return
+
+        # 2. 获取当前登录用户 ID
+        user_id = session.get('user_id')
+        
+        # 如果用户已登录，进行权限检查
+        if user_id:
+            # 局部引用 User 模型，避免循环导入
+            from .models import User
+            user = User.query.get(user_id)
+            
+            # 检查是否为受限角色 'customer'
+            if user and user.role == 'customer':
+                # 定义允许访问的端点白名单 (主要是 auth 模块的登录、注册、注销)
+                # 'auth.logout' 必须允许，否则用户无法退出切换账号
+                allowed_endpoints = ['auth.login', 'auth.register', 'auth.logout']
+                
+                # 如果当前请求的端点不在白名单中，则拒绝访问
+                if request.endpoint not in allowed_endpoints:
+                    # 方法 A: 直接返回 403 禁止访问错误
+                    # return "您的账号权限受限，仅允许注册和登录。", 403
+                    
+                    # 方法 B (推荐): 渲染一个友好的拒绝页面
+                    # return render_template('403_customer.html'), 403
+                    
+                    # 方法 C (简单): 闪现消息并重定向回登录页(或注销)
+                    # from flask import flash
+                    # flash('普通用户无权访问系统功能，请联系管理员。')
+                    # return redirect(url_for('auth.logout'))
+                    
+                    # 这里使用最直接的拒绝方式：
+                    return "<h1>403 Forbidden</h1><p>游客角色无权访问此系统。请<a href='/auth/logout'>退出</a>后使用员工账号登录。</p>", 403
 
     app.config.from_object('config.Config')
 

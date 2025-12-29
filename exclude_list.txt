@@ -1,0 +1,8 @@
+venv\
+.git\
+__pycache__\
+.idea\
+.vscode\
+fszn\uploads\
+deploy.bat
+exclude_list.txt

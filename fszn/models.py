@@ -25,7 +25,7 @@ class Company(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     # 客户公司名称
-    name = db.Column(db.String(200), unique=True, nullable=False)
+    name = db.Column(db.String(200), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # 一家公司有多个项目/合同

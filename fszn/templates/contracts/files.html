@@ -3,13 +3,15 @@
 {% block title %}文件管理 - {{ contract.project_code }}{% endblock %}
 
 {% block content %}
-<h1>文件管理</h1>
+<h1>文件管理（上传新文件往最下方滑动）</h1>
 
-<p>
-    <strong>项目编号：</strong>{{ contract.project_code }}<br>
-    <strong>合同名称：</strong>{{ contract.name }}<br>
-    <strong>客户公司：</strong>{{ contract.company.name if contract.company else '' }}
-</p>
+<div style="font-size: 24px; font-weight: 900; margin-bottom: 20px; color: #333;">
+    <span>客户公司：{{ contract.company.name if contract.company else '' }}</span>
+    <span style="margin: 0 10px;"></span><br>
+    <span>项目编号：{{ contract.project_code }}</span>
+    <span style="margin: 0 10px;"></span><br>
+    <span>合同内容/名称：{{ contract.name }}</span>
+</div>
 
 <!-- 顶部导航 -->
 <p>
@@ -34,7 +36,7 @@
 <h2>当前文件</h2>
 
 <form method="get" style="margin-bottom: 10px; border:1px solid #ccc; padding:8px;">
-    <strong>筛选条件：</strong>
+    <strong>筛选条件(非上传，是筛选功能)：</strong>
     <label style="margin-right: 10px;">
         文件类型：
         <select name="file_type">
@@ -76,7 +78,6 @@
 <table border="1" cellpadding="4" cellspacing="0">
     <thead>
         <tr>
-            <th>ID</th>
             <th>文件名（生成）</th>
             <th>原始文件名</th>
             <th>类型</th>
@@ -92,7 +93,6 @@
     <tbody>
         {% for f in files %}
         <tr>
-            <td>{{ f.id }}</td>
             <td>{{ f.stored_filename }}</td>
             <td>{{ f.original_filename }}</td>
             <td>
@@ -138,55 +138,85 @@
 <p>当前该项目还没有文件。</p>
   {% endif %}
 
-<h2>上传新文件</h2>
+<h2 style="font-size: 22px; font-weight: bold; margin-top: 30px; margin-bottom: 15px;">
+    上传新文件（在下方虚线上传栏点击或拖拽上传，多个文件时先在键盘上按住 ctrl 鼠标单击多选文件再上传即可上传多个文件）
+</h2>
 
-<!-- 上传提示：命名规则 & 大小限制 -->
-<div style="border:1px solid #99c; padding:8px; margin-bottom:10px;">
+<div style="border:1px solid #99c; padding:15px; margin-bottom:20px; background-color: #fcfcfc;">
     <strong>命名与上传提示：</strong><br>
-    1. 系统会自动根据以下规则生成文件名：<br>
-    <code>客户公司_项目编号_合同编号_合同名称_上传日期_文件类型_文件原始名_版本号_作者.扩展名</code><br>
+    <div style="margin-top: 8px;">
+        1. 系统会自动根据以下规则<span style="color: red; font-weight: bold;">生成文件名</span>：<br>
+        <div style="font-size: 18px; font-weight: 900; margin: 10px 0; color: #000; background-color: #eef; padding: 8px; border-radius: 4px;">
+            客户公司_项目编号_合同编号_合同名称_上传日期_文件类型_文件原始名_版本号_作者.扩展名
+        </div>
+    </div>
     2. 你只需要选择文件、选择文件类型、填写版本号（可选），作者将自动使用当前登录用户名。<br>
     3. 建议尽量上传 PDF 或常见图片格式（PNG/JPG），单个文件大小不超过 {{ (config.MAX_CONTENT_LENGTH or 0) // (1024*1024) }} MB，但也支持其它类型文件。<br>
 </div>
 
 <style>
+    /* 上传盒子样式优化 */
     .upload-box {
-        border: 2px dashed #bbb;
-        padding: 16px;
-        border-radius: 8px;
+        /* 1. 差异度：使用明显的蓝色虚线边框和淡蓝背景，与周围白色背景区分 */
+        border: 3px dashed #4a90e2;
+        background: #f0f8ff;
+        /* 2. 显示大小：大幅增加内边距，让盒子变高变大，方便拖拽 */
+        padding: 60px 20px;
+        border-radius: 12px;
         text-align: center;
-        background: #fafafa;
         cursor: pointer;
-        transition: 0.2s;
+        transition: all 0.3s ease;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* 加一点阴影增加立体感 */
     }
 
+        /* 悬停或拖拽文件进入时的效果 */
+        .upload-box:hover,
         .upload-box.dragover {
-            background: #eef7ff;
-            border-color: #3399ff;
+            background: #e1f0ff;
+            border-color: #0056b3;
+            transform: scale(1.01); /* 轻微放大，增加交互感 */
         }
 
+    /* 盒子内的文字样式 */
+    #uploadText {
+        font-size: 24px; /* 文字加大 */
+        font-weight: 900; /* 文字加粗 */
+        color: #2c5282; /* 深蓝色文字 */
+    }
+
+    /* 下方的小字提示样式（可选） */
+    .upload-subtext {
+        font-size: 14px;
+        color: #666;
+        margin-top: 10px;
+    }
+
+    /* 文件列表样式（保持原样微调） */
     .file-list {
-        max-height: 120px;
+        max-height: 150px;
         overflow-y: auto;
         border: 1px solid #ddd;
         margin-top: 10px;
-        padding: 6px;
+        padding: 10px;
         border-radius: 6px;
-        font-size: 13px;
+        font-size: 14px;
         background: #fff;
     }
 
     .file-list-item {
         border-bottom: 1px solid #eee;
-        padding: 3px 0;
+        padding: 6px 0;
+        color: #333;
     }
 </style>
 
 <form method="post" enctype="multipart/form-data" id="uploadForm">
 
-    <!-- ⬇ 上传盒子（可点击+可拖拽） -->
     <div id="uploadBox" class="upload-box">
-        <div id="uploadText">点击或拖拽文件到此处（可多选）</div>
+        <div id="uploadText">点击此处 或 拖拽文件到这里</div>
+        <div class="upload-subtext">支持多选，可一次上传多个文件</div>
+
         <input type="file" id="fileInput" name="files" multiple style="display: none;">
     </div>
 
@@ -208,7 +238,7 @@
     <p>
         <label>
             版本：
-            <input type="text" name="version" placeholder="如：V1，1.0，1.1，2.0等" required>
+            <input type="text" name="version" placeholder="如：1.0，1.1，2.0，盖章版，未盖章版等" required>
         </label>
     </p>
 

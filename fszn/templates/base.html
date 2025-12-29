@@ -2,18 +2,19 @@
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}FSZN 合同管理系统{% endblock %}</title>
 </head>
 <body>
-    <nav>
-        <a href="{{ url_for('home') }}">主页</a>
+    <nav style="font-size: 18px; font-weight: bold; margin-top: 10px; margin-bottom: 10px;">
+        <a href="{{ url_for('home') }}" style="margin-right: 15px;">主页</a>
         {% if session.get('user_id') %}
-        <a href="{{ url_for('contracts.list_contracts') }}">项目/合同</a>
-        <a href="{{ url_for('org.list_departments') }}">部门与人员</a>
-        <a href="{{ url_for('logs.list_logs') }}">操作日志</a>
+        <a href="{{ url_for('contracts.list_contracts') }}" style="margin-right: 15px;">项目/合同</a>
+        <a href="{{ url_for('org.list_departments') }}" style="margin-right: 15px;">部门与人员</a>
+        <a href="{{ url_for('logs.list_logs') }}" style="margin-right: 15px;">操作日志</a>
         <a href="{{ url_for('auth.logout') }}">退出登录</a>
         {% else %}
-        <a href="{{ url_for('auth.login') }}">登录</a>
+        <a href="{{ url_for('auth.login') }}" style="margin-right: 15px;">登录</a>
         <a href="{{ url_for('auth.register') }}">注册</a>
         {% endif %}
     </nav>

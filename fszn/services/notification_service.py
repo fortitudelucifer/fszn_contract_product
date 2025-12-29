@@ -269,6 +269,11 @@ class WeComRobotNotificationService:
         if contract_url:
             lines.append(f"\n[点击查看合同]({contract_url})")
 
+        if target:
+            # 企业微信 @人语法: <@userid>
+            # 也可以用 <@all> 来 @所有人
+            lines.append(f"\n<@{target}> 请处理")
+
         content = "\n".join(lines)
 
         payload = {

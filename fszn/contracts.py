@@ -242,7 +242,7 @@ def list_contracts():
             next_tasks_by_contract.setdefault(t.contract_id, []).append(t)
 
     # 4）准备“客户反馈摘要”：总数 / 未解决数 / 最新一条内容
-        feedback_summary_by_contract: dict[int, dict] = {}
+    feedback_summary_by_contract: dict[int, dict] = {}
     if contract_ids:
         feedbacks = (
             Feedback.query
@@ -397,11 +397,27 @@ def edit_contract(contract_id: int):
     user = User.query.get(user_id) if user_id else None
 
     contract = Contract.query.get_or_404(contract_id)
-    company = contract.company  # 只读展示客户公司
+    company = contract.company
 
     if request.method == 'POST':
-        # 记录旧值，用于操作日志
+        # 1. 获取表单数据
+        company_name = (request.form.get('company_name') or '').strip()
+        project_code = (request.form.get('project_code') or '').strip()
+        contract_number = (request.form.get('contract_number') or '').strip()
+        name = (request.form.get('name') or '').strip()
+        client_manager = (request.form.get('client_manager') or '').strip()
+        client_contact = (request.form.get('client_contact') or '').strip()
+        our_manager = (request.form.get('our_manager') or '').strip()
+        remark = (request.form.get('remark') or '').strip() or None
+
+        # 2. 必填检查
+        if not company_name or not project_code or not contract_number or not name:
+            flash('客户公司、项目编号、合同编号、合同名称都是必填项')
+            return render_template('contracts/edit.html', user=user, contract=contract, company=company)
+
+        # 3. 记录旧数据（用于日志）
         old_data = {
+            "company_name": contract.company.name if contract.company else "",
             "project_code": contract.project_code,
             "contract_number": contract.contract_number,
             "name": contract.name,
@@ -411,26 +427,19 @@ def edit_contract(contract_id: int):
             "remark": getattr(contract, "remark", None),
         }
 
-        project_code = (request.form.get('project_code') or '').strip()
-        contract_number = (request.form.get('contract_number') or '').strip()
-        name = (request.form.get('name') or '').strip()
-        client_manager = (request.form.get('client_manager') or '').strip()
-        client_contact = (request.form.get('client_contact') or '').strip()
-        our_manager = (request.form.get('our_manager') or '').strip()
-        remark = (request.form.get('remark') or '').strip() or None
-
-        if not project_code or not contract_number or not name:
-            flash('项目编号、合同编号、合同名称都是必填项')
-            return render_template('contracts/edit.html', user=user, contract=contract, company=company)
-
-        # 如果项目编号修改了，需要检查唯一性
+        # 4. 项目编号唯一性检查（如果修改了项目编号）
         if project_code != contract.project_code:
             exists = Contract.query.filter_by(project_code=project_code).first()
             if exists and exists.id != contract.id:
                 flash('该项目编号已存在，请更换一个唯一的项目编号')
                 return render_template('contracts/edit.html', user=user, contract=contract, company=company)
 
-        # 写回新值
+        # 5. 执行更新
+        # 直接修改关联公司的名字
+        # 注意：如果有多个合同共用同一个公司ID，这些合同显示的客户名都会同步改变。
+        if contract.company:
+            contract.company.name = company_name
+        
         contract.project_code = project_code
         contract.contract_number = contract_number
         contract.name = name
@@ -442,7 +451,9 @@ def edit_contract(contract_id: int):
 
         db.session.commit()
 
+        # 6. 记录日志
         new_data = {
+            "company_name": company_name,
             "project_code": contract.project_code,
             "contract_number": contract.contract_number,
             "name": contract.name,
@@ -452,7 +463,6 @@ def edit_contract(contract_id: int):
             "remark": getattr(contract, "remark", None),
         }
 
-        # ✅ 记录操作日志（合同编辑）
         log_operation(
             operator=user,
             contract_id=contract.id,
@@ -467,7 +477,6 @@ def edit_contract(contract_id: int):
         flash('合同信息已更新')
         return redirect(url_for('contracts.list_contracts'))
 
-    # GET：展示编辑表单
     return render_template('contracts/edit.html', user=user, contract=contract, company=company)
 
 # 发送通知
@@ -513,7 +522,10 @@ def notify_contract(contract_id: int):
                 target = (getattr(target_user, 'wechat', '') or '').strip()
             elif channel in ('wechat_corp', 'ding'):
                 # 企业微信群机器人 / 钉钉机器人：不需要 per-user target
-                target = ''
+                if channel == 'ding':
+                    target = (getattr(target_user, 'phone', '') or '').strip()
+                else:
+                    target = (getattr(target_user, 'wechat', '') or '').strip()
 
 
         # 对需要“具体联系人”的通道（邮箱 / 手机 / 个人微信）强制要求 target

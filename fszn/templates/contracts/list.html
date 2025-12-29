@@ -3,9 +3,10 @@
 {% block title %}项目 / 合同列表{% endblock %}
 
 {% block content %}
-<h1>项目 / 合同列表</h1>
+<h2>项目 / 合同列表</h2>
 
-<p>
+
+<p style="font-size: 18px; font-weight: bold; margin-bottom: 20px;">
     <a href="{{ url_for('contracts.new_contract') }}">新建项目/合同</a> |
     <a href="{{ url_for('contracts.tasks_by_department') }}">任务总览（按部门）</a> |
     <a href="{{ url_for('contracts.tasks_by_person') }}">任务总览（按人员）</a>
@@ -66,6 +67,14 @@
 
 <style>
     /* 整个列表表格的基础样式 */
+    .table-responsive {
+        width: 100%;
+        min-width: 1400px;
+        overflow-x: auto; /* 如果内容超出屏幕宽度，自动显示横向滚动条 */
+        -webkit-overflow-scrolling: touch; /* 让手机端滚动更丝滑 */
+        margin-bottom: 20px;
+    }
+
     .contract-list-table {
         width: 100%;
         table-layout: fixed;
@@ -88,55 +97,56 @@
         }
 
         /* 各列宽度（百分比，总和 ~100） */
-        .contract-list-table .col-id {
-            width: 2%;         /* 4*/  /*id*/
-        }
+        /*.contract-list-table .col-id {
+            width: 2%;*/ /* 4*/ /*id*/
+        /*}*/
 
         .contract-list-table .col-company {
-            width: 13%;           /*13*/      /*客户公司*/
+            width: 12%; /*13*/ /*客户公司*/
         }
 
         .contract-list-table .col-project {
-            width: 5%;           /* 7*/       /* 项目编号*/
+            width: 5%; /* 7*/ /* 项目编号*/
         }
 
         .contract-list-table .col-contract-no {
-            width: 4%;               /*7*/          /*合同编号*/
+            width: 4%; /*7*/ /*合同编号*/
         }
 
         .contract-list-table .col-name {
-            width: 13%;              /* 13*/             /*合同名称*/
+            width: 12%; /* 13*/ /*合同名称*/
         }
 
         .contract-list-table .col-plan-date {
-            width: 7%;              /*9*/             /*计划交付日期*/
+            width: 10%; /*9*/ /*计划交付日期*/
+            min-width: 135px;
         }
 
         .contract-list-table .col-client {
-            width: 4%;             /*7*/           /*客户负责人*/
+            width: 4%; /*7*/ /*客户负责人*/
         }
 
         .contract-list-table .col-status {
-            width: 10%;                /* 10*/       /*状态*/
+            width: 10%; /* 10*/ /*状态*/
         }
 
         .contract-list-table .col-tasks {
-            width: 12%;             /* 9*/        /*后续任务*/
+            width: 11%; /* 9*/ /*后续任务*/
         }
 
         .contract-list-table .col-mech,
         .contract-list-table .col-elec,
         .contract-list-table .col-prog,
         .contract-list-table .col-asm {
-            width: 5%;             /* 4*/
+            width: 5%; /* 4*/
         }
 
         .contract-list-table .col-feedback {
-            width: 15%;                /*13*/
+            width: 15%; /*13*/
         }
 
         .contract-list-table .col-ops {
-            width: 13%;                /* 10*/
+            width: 15%; /* 10*/
         }
 
     /* 状态备注 textarea 样式 */
@@ -154,219 +164,220 @@
     }
 </style>
 
+<div class="table-responsive">
+    <table class="contract-list-table" border="1" cellspacing="0" cellpadding="4">
 
-<table class="contract-list-table" border="1" cellspacing="0" cellpadding="4">
-
-    <thead>
-        <tr>
-            <th class="col-id">ID</th>
-            <th class="col-company">客户公司</th>
-            <th class="col-project">项目编号</th>
-            <th class="col-contract-no">合同编号</th>
-            <th class="col-name">合同名称</th>
-            <th class="col-plan-date">计划交付日期</th>
-            <th class="col-client">客户负责人</th>
-            <th class="col-status">状态</th>
-            <th class="col-tasks">后续任务</th>
-            <th class="col-mech">机械设计</th>
-            <th class="col-elec">电气设计</th>
-            <th class="col-prog">软件设计</th>
-            <th class="col-asm">装配调试</th>
-            <th class="col-feedback">客户反馈/备注</th>
-            <th class="col-ops">操作</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for c in contracts %}
-        <tr>
-            <td>{{ c.id }}</td>
-            <td>{{ c.company.name if c.company else '' }}</td>
-            <td>{{ c.project_code }}</td>
-            <td>{{ c.contract_number }}</td>
-            <td>
-                <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">
-                    {{ c.name }}
-                </a>
-            </td>
-            <td>
-                <form method="post"
-                      action="{{ url_for('contracts.set_planned_delivery', contract_id=c.id) }}">
-                    <input type="date"
-                           name="planned_delivery_date"
-                           value="{{ c.planned_delivery_date.strftime('%Y-%m-%d') if c.planned_delivery_date else '' }}"
-                           style="width: 100%;">
-                    <button type="submit">保存</button>
-                </form>
-            </td>
-            <td>{{ c.client_manager }}</td>
-            {# ========= 彩色状态展示 =======
-            == #}
-            <td>
-                {# 自动计算的状态（彩色显示） #}
-                {% set st = statuses.get(c.id) %}
-                {% if st %}
-                {% if st.level == 'green' %}
-                <span style="color:green;">{{ st.text }}</span>
-                {% elif st.level == 'red' %}
-                <span style="color:red;">{{ st.text }}</span>
-                {% elif st.level == 'orange' %}
-                <span style="color:darkorange;">{{ st.text }}</span>
-                {% elif st.level == 'blue' %}
-                <span style="color:blue;">{{ st.text }}</span>
-                {% else %}
-                <span style="color:#666;">{{ st.text }}</span>
-                {% endif %}
-                {% else %}
-                -
-                {% endif %}
-
-                {# 手工编辑的“当前状态”备注 #}
-                <form method="post"
-                      action="{{ url_for('contracts.set_status_note', contract_id=c.id) }}"
-                      style="margin-top: 0.3em;">
-                    <textarea name="status_note"
-                              class="status-note"
-                              oninput="autoGrow(this)">{{ c.status_note or '' }}</textarea>
-                    <button type="submit">保存</button>
-                </form>
-
-            </td>
-
-            {# ========= 后续任务摘要 ========= #}
-            <td>
-                {% set tasks = next_tasks_by_contract.get(c.id) or [] %}
-                {% if tasks %}
-                {% for t in tasks[:3] %}
-                <div>
-                    {% if t.start_date %}
-                    {{ t.start_date.strftime('%m-%d') }}：
-                    {% endif %}
-                    {{ t.title }}
-                </div>
-                {% endfor %}
-                {% if tasks|length > 3 %}
-                <div>
-                    <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">更多…</a>
-                </div>
-                {% endif %}
-                {% else %}
-                <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">添加任务</a>
-                {% endif %}
-            </td>
-            {# ========= 部门负责人：固定四列 ========= #}
-            {% set dept_map = leaders_by_contract.get(c.id, {}) %}
-
-            <td>
-                {# 机械设计 #}
-                {% set mech_persons = dept_map.get('机械部') or dept_map.get('机械设计部') or [] %}
-                {% if mech_persons %}
-                {% for p in mech_persons %}
-                <div>{{ p.name }}</div>
-                {% endfor %}
-                {% else %}
-                -
-                {% endif %}
-            </td>
-
-            <td>
-                {# 电气设计 #}
-                {% set elec_persons = dept_map.get('电气部') or dept_map.get('电气设计部') or [] %}
-                {% if elec_persons %}
-                {% for p in elec_persons %}
-                <div>{{ p.name }}</div>
-                {% endfor %}
-                {% else %}
-                -
-                {% endif %}
-            </td>
-
-            <td>
-                {# 程序设计 #}
-                {% set prog_persons = dept_map.get('程序部') or dept_map.get('软件部') or dept_map.get('程序设计部') or [] %}
-                {% if prog_persons %}
-                {% for p in prog_persons %}
-                <div>{{ p.name }}</div>
-                {% endfor %}
-                {% else %}
-                -
-                {% endif %}
-            </td>
-
-            <td>
-                {# 装配调试 #}
-                {% set asm_persons = dept_map.get('装配部') or dept_map.get('调试部') or dept_map.get('装配调试部') or [] %}
-                {% if asm_persons %}
-                {% for p in asm_persons %}
-                <div>{{ p.name }}</div>
-                {% endfor %}
-                {% else %}
-                -
-                {% endif %}
-            </td>
-            {# ========= 客户反馈 / 备注：默认显示前 3 条，可展开全部 ========= #}
-            <td>
-                {% set fb_sum = feedback_summary_by_contract.get(c.id) %}
-                {% if fb_sum %}
-                {% set records = fb_sum.records %}
-                {% set total = records|length %}
-
-                {% if fb_sum.unresolved > 0 %}
-                未解决 {{ fb_sum.unresolved }} 条，共 {{ fb_sum.total }} 条<br>
-                {% else %}
-                所有反馈已解决，共 {{ fb_sum.total }} 条<br>
-                {% endif %}
-
-                {# 前 3 条默认显示，其余隐藏，点击展开 #}
-                {% for fb in records %}
-                {% set is_extra = loop.index > 3 %}
-                <div class="fb-item {% if is_extra %}fb-extra-{{ c.id }}{% endif %}"
-                     style="{% if is_extra %}display: none;{% endif %}">
-                    {% if fb.feedback_time %}
-                    {{ fb.feedback_time.strftime('%m-%d') }}：
-                    {% endif %}
-                    {{ fb.content }}
-                    {% if not fb.is_resolved %}
-                    <span style="color:red;">（未解决）</span>
+        <thead>
+            <tr>
+                <!--<th class="col-id">ID</th>-->
+                <th class="col-company">客户公司</th>
+                <th class="col-project">项目编号</th>
+                <th class="col-contract-no">合同编号</th>
+                <th class="col-name">合同名合同内容（具体的项目内容，如SPC，全检机等）</th>
+                <th class="col-plan-date">计划交付日期</th>
+                <th class="col-client">客户负责人</th>
+                <th class="col-status">状态</th>
+                <th class="col-tasks">后续任务</th>
+                <th class="col-mech">机械设计</th>
+                <th class="col-elec">电气设计</th>
+                <th class="col-prog">软件设计</th>
+                <th class="col-asm">装配调试</th>
+                <th class="col-feedback">客户反馈/备注</th>
+                <th class="col-ops">操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in contracts %}
+            <tr>
+                <!--<td>{{ c.id }}</td>-->
+                <td>{{ c.company.name if c.company else '' }}</td>
+                <td>{{ c.project_code }}</td>
+                <td>{{ c.contract_number }}</td>
+                <td>
+                    <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">
+                        {{ c.name }}
+                    </a>
+                </td>
+                <td>
+                    <form method="post"
+                          action="{{ url_for('contracts.set_planned_delivery', contract_id=c.id) }}">
+                        <input type="date"
+                               name="planned_delivery_date"
+                               value="{{ c.planned_delivery_date.strftime('%Y-%m-%d') if c.planned_delivery_date else '' }}"
+                               style="width: 100%;">
+                        <button type="submit">保存</button>
+                    </form>
+                </td>
+                <td>{{ c.client_manager }}</td>
+                {# ========= 彩色状态展示 =======
+                == #}
+                <td>
+                    {# 自动计算的状态（彩色显示） #}
+                    {% set st = statuses.get(c.id) %}
+                    {% if st %}
+                    {% if st.level == 'green' %}
+                    <span style="color:green;">{{ st.text }}</span>
+                    {% elif st.level == 'red' %}
+                    <span style="color:red;">{{ st.text }}</span>
+                    {% elif st.level == 'orange' %}
+                    <span style="color:darkorange;">{{ st.text }}</span>
+                    {% elif st.level == 'blue' %}
+                    <span style="color:blue;">{{ st.text }}</span>
                     {% else %}
-                    <span style="color:green;">（已解决）</span>
+                    <span style="color:#666;">{{ st.text }}</span>
                     {% endif %}
-                </div>
-                {% endfor %}
+                    {% else %}
+                    -
+                    {% endif %}
 
-                {% if total > 3 %}
-                <div style="margin-top: 0.3em;">
-                    <a href="javascript:void(0);" onclick="toggleFeedback('{{ c.id }}', this)">
-                        展开全部
-                    </a>
-                </div>
-                {% endif %}
+                    {# 手工编辑的“当前状态”备注 #}
+                    <form method="post"
+                          action="{{ url_for('contracts.set_status_note', contract_id=c.id) }}"
+                          style="margin-top: 0.3em;">
+                        <textarea name="status_note"
+                                  class="status-note"
+                                  oninput="autoGrow(this)">{{ c.status_note or '' }}</textarea>
+                        <button type="submit">保存</button>
+                    </form>
 
-                <div style="margin-top: 0.3em;">
-                    <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">
-                        查看 / 编辑反馈备注
-                    </a>
-                </div>
-                {% else %}
-                <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">添加反馈</a>
-                {% endif %}
-            </td>
-            <td>
-                <a href="{{ url_for('contracts.contract_overview', contract_id=c.id) }}">总览</a> |
-                <a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">编辑合同</a> |
-                <a href="{{ url_for('contracts.notify_contract', contract_id=c.id) }}">发送通知</a> |
-                <a href="{{ url_for('contracts.manage_sales', contract_id=c.id) }}">销售</a> |
-                <a href="{{ url_for('contracts.manage_leaders', contract_id=c.id) }}">负责人</a> |
-                <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">任务</a> |
-                <a href="{{ url_for('contracts.manage_procurements', contract_id=c.id) }}">采购</a> |
-                <a href="{{ url_for('contracts.manage_acceptances', contract_id=c.id) }}">验收</a> |
-                <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">客户反馈/备注</a> |
-                <a href="{{ url_for('contracts.manage_files', contract_id=c.id) }}">文件</a>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
+                </td>
 
-</table>
+                {# ========= 后续任务摘要 ========= #}
+                <td>
+                    {% set tasks = next_tasks_by_contract.get(c.id) or [] %}
+                    {% if tasks %}
+                    {% for t in tasks[:3] %}
+                    <div>
+                        {% if t.start_date %}
+                        {{ t.start_date.strftime('%m-%d') }}：
+                        {% endif %}
+                        {{ t.title }}
+                    </div>
+                    {% endfor %}
+                    {% if tasks|length > 3 %}
+                    <div>
+                        <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">更多…</a>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">添加任务</a>
+                    {% endif %}
+                </td>
+                {# ========= 部门负责人：固定四列 ========= #}
+                {% set dept_map = leaders_by_contract.get(c.id, {}) %}
+
+                <td>
+                    {# 机械设计 #}
+                    {% set mech_persons = dept_map.get('机械部') or dept_map.get('机械设计部') or [] %}
+                    {% if mech_persons %}
+                    {% for p in mech_persons %}
+                    <div>{{ p.name }}</div>
+                    {% endfor %}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {# 电气设计 #}
+                    {% set elec_persons = dept_map.get('电气部') or dept_map.get('电气设计部') or [] %}
+                    {% if elec_persons %}
+                    {% for p in elec_persons %}
+                    <div>{{ p.name }}</div>
+                    {% endfor %}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {# 程序设计 #}
+                    {% set prog_persons = dept_map.get('程序部') or dept_map.get('软件部') or dept_map.get('程序设计部') or [] %}
+                    {% if prog_persons %}
+                    {% for p in prog_persons %}
+                    <div>{{ p.name }}</div>
+                    {% endfor %}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {# 装配调试 #}
+                    {% set asm_persons = dept_map.get('装配部') or dept_map.get('调试部') or dept_map.get('装配调试部') or [] %}
+                    {% if asm_persons %}
+                    {% for p in asm_persons %}
+                    <div>{{ p.name }}</div>
+                    {% endfor %}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                {# ========= 客户反馈 / 备注：默认显示前 3 条，可展开全部 ========= #}
+                <td>
+                    {% set fb_sum = feedback_summary_by_contract.get(c.id) %}
+                    {% if fb_sum %}
+                    {% set records = fb_sum.records %}
+                    {% set total = records|length %}
+
+                    {% if fb_sum.unresolved > 0 %}
+                    未解决 {{ fb_sum.unresolved }} 条，共 {{ fb_sum.total }} 条<br>
+                    {% else %}
+                    所有反馈已解决，共 {{ fb_sum.total }} 条<br>
+                    {% endif %}
+
+                    {# 前 3 条默认显示，其余隐藏，点击展开 #}
+                    {% for fb in records %}
+                    {% set is_extra = loop.index > 3 %}
+                    <div class="fb-item {% if is_extra %}fb-extra-{{ c.id }}{% endif %}"
+                         style="{% if is_extra %}display: none;{% endif %}">
+                        {% if fb.feedback_time %}
+                        {{ fb.feedback_time.strftime('%m-%d') }}：
+                        {% endif %}
+                        {{ fb.content }}
+                        {% if not fb.is_resolved %}
+                        <span style="color:red;">（未解决）</span>
+                        {% else %}
+                        <span style="color:green;">（已解决）</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+
+                    {% if total > 3 %}
+                    <div style="margin-top: 0.3em;">
+                        <a href="javascript:void(0);" onclick="toggleFeedback('{{ c.id }}', this)">
+                            展开全部
+                        </a>
+                    </div>
+                    {% endif %}
+
+                    <div style="margin-top: 0.3em;">
+                        <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">
+                            查看 / 编辑反馈备注
+                        </a>
+                    </div>
+                    {% else %}
+                    <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">添加反馈</a>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('contracts.contract_overview', contract_id=c.id) }}">总览</a> |
+                    <a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">编辑合同</a> |
+                    <a href="{{ url_for('contracts.notify_contract', contract_id=c.id) }}">发送通知</a> |
+                    <a href="{{ url_for('contracts.manage_sales', contract_id=c.id) }}">销售</a> |
+                    <a href="{{ url_for('contracts.manage_leaders', contract_id=c.id) }}">负责人</a> |
+                    <a href="{{ url_for('contracts.manage_tasks', contract_id=c.id) }}">任务</a> |
+                    <a href="{{ url_for('contracts.manage_procurements', contract_id=c.id) }}">采购</a> |
+                    <a href="{{ url_for('contracts.manage_acceptances', contract_id=c.id) }}">验收</a> |
+                    <a href="{{ url_for('contracts.manage_feedbacks', contract_id=c.id) }}">客户反馈/备注</a> |
+                    <a href="{{ url_for('contracts.manage_files', contract_id=c.id) }}">文件</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+
+    </table>
+</div>
     {% else %}
 <p>当前还没有项目/合同。</p>
     {% endif %}
