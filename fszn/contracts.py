@@ -627,6 +627,16 @@ def set_planned_delivery(contract_id: int):
     user_id = session.get('user_id')
     user = User.query.get(user_id) if user_id else None
 
+    # =========== 新增：权限检查 ===========
+    # 定义有权限的特定用户名列表（请修改为您实际的用户名）
+    allowed_usernames = ['张禹', '李少亮', 'wangwu']
+    
+    # 判断：如果不是 admin/boss，且不在特定名单里，则拒绝
+    if user.role not in ['admin', 'boss'] and user.username not in allowed_usernames:
+        flash('您没有权限修改计划交付日期')
+        return redirect(url_for('contracts.list_contracts'))
+    # ======================================
+
     contract = Contract.query.get_or_404(contract_id)
 
     # 旧值用于写入操作日志

@@ -199,14 +199,24 @@
                     </a>
                 </td>
                 <td>
+                    {# 定义有权限的特定用户列表（注意：这里也要写一遍，或者在后端传过来） #}
+                    {% set allowed_usernames = ['zhangsan', 'lisi', 'wangwu'] %}
+
+                    {# 判断权限：如果是 admin/boss 或在名单中 #}
+                    {% if user.role in ['admin', 'boss'] or user.username in allowed_usernames %}
                     <form method="post"
                           action="{{ url_for('contracts.set_planned_delivery', contract_id=c.id) }}">
                         <input type="date"
                                name="planned_delivery_date"
                                value="{{ c.planned_delivery_date.strftime('%Y-%m-%d') if c.planned_delivery_date else '' }}"
                                style="width: 100%;">
-                        <button type="submit">保存</button>
+                        <button type="submit" style="margin-top: 2px;">保存</button>
                     </form>
+                    {% else %}
+                    <div style="padding: 4px 0;">
+                        {{ c.planned_delivery_date.strftime('%Y-%m-%d') if c.planned_delivery_date else '-' }}
+                    </div>
+                    {% endif %}
                 </td>
                 <td>{{ c.client_manager }}</td>
                 {# ========= 彩色状态展示 =======
